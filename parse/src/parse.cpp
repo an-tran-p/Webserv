@@ -6,11 +6,11 @@
 /*   By: juhyeonl <juhyeonl@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/21 00:16:44 by juhyeonl          #+#    #+#             */
-/*   Updated: 2026/01/27 16:45:50 by juhyeonl         ###   ########.fr       */
+/*   Updated: 2026/01/27 16:49:29 by juhyeonl         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
-#include "request.hpp"
+#include "parse.hpp"
 
 Request::Request() : _state(REQUEST_LINE), _content_length(0)
 {
