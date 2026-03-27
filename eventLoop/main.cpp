@@ -6,11 +6,12 @@
 /*   By: atran <atran@student.hive.fi>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/29 10:22:32 by atran             #+#    #+#             */
-/*   Updated: 2026/02/11 14:19:49 by atran            ###   ########.fr       */
+/*   Updated: 2026/02/17 11:39:38 by atran            ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "Socket.hpp"
+#include "ServerSocket.hpp"
 #include <iostream>
 
 int main(){
@@ -39,6 +40,16 @@ int main(){
     std::cout << "After move assignment:" << std::endl;
     std::cout << "s3.fd() = " << s3.fd() << std::endl; // -1
     std::cout << "s2.fd() = " << s2.fd() << std::endl;
+
+    try {
+        ServerSocket server(8080);
+        server.bind_and_listen();
+
+        Socket client = server.accept_client();
+        std::cout << "Client connected! fd=" << client.fd() << std::endl;
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << std::endl;
+    }
 
     return 0;
 }
