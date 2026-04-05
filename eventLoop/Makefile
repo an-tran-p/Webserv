@@ -6,19 +6,19 @@
 #    By: atran <atran@student.hive.fi>              +#+  +:+       +#+         #
 #                                                 +#+#+#+#+#+   +#+            #
 #    Created: 2025/12/09 11:16:10 by atran             #+#    #+#              #
-#    Updated: 2026/02/17 11:39:51 by atran            ###   ########.fr        #
+#    Updated: 2026/04/04 14:32:23 by atran            ###   ########.fr        #
 #                                                                              #
 # **************************************************************************** #
 
 NAME = eventLoop
 
-SRCS = main.cpp Socket.cpp ServerSocket.cpp
+SRCS = main.cpp Socket.cpp ServerSocket.cpp Connection.cpp parse.cpp
 
 OBJS = $(SRCS:%.cpp=%.o)
 
 CXX = c++
 
-FLAGS = -Wall -Wextra -Werror -std=c++11
+FLAGS = -Wall -Wextra -Werror -std=c++20
 
 RM = rm -rf
 
