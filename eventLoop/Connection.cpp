@@ -6,7 +6,7 @@
 /*   By: atran <atran@student.hive.fi>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/03/27 09:58:35 by atran             #+#    #+#             */
-/*   Updated: 2026/03/27 13:57:33 by atran            ###   ########.fr       */
+/*   Updated: 2026/04/04 13:41:15 by atran            ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -33,13 +33,13 @@ std::string &Connection::getWriteBuffer(){
 
 bool Connection::read_from_socket(){
     char buffer[1024];
-    std::cout << "Calling recv....." << std::endl;
     int bytes = recv(_socket.fd(), buffer, sizeof(buffer), 0);
-    std::cout << "Received bytes: " << bytes << std::endl;
 
     if (bytes == 0)
         return false;
     else if (bytes < 0){
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+            return true;
         perror("recv");
         return false;
     }
@@ -53,6 +53,8 @@ bool Connection::write_to_socket(){
 
     int bytes = send(_socket.fd(), _writeBuffer.c_str(), _writeBuffer.size(), 0);
     if (bytes <= 0){
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+            return true;
         perror("send");
         return false;
     }
