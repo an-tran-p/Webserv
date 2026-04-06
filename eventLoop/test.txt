@@ -1,0 +1,62 @@
+Incomplete/malformed request line
+bash# no path
+printf "GET HTTP/1.1\r\nHost: localhost\r\n\r\n" | nc localhost 8080
+
+# no protocol
+printf "GET /\r\nHost: localhost\r\n\r\n" | nc localhost 8080
+
+# wrong protocol
+printf "GET / HTTP/2.0\r\nHost: localhost\r\n\r\n" | nc localhost 8080
+
+# empty request
+printf "\r\n\r\n" | nc localhost 8080
+Chunked transfer encoding
+bash# valid chunked body
+printf "POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n" | nc localhost 8080
+
+# malformed chunk size
+printf "POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\nZZZZ\r\nhello\r\n0\r\n\r\n" | nc localhost 8080
+
+# both Content-Length and chunked together
+printf "POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\nhello" | nc localhost 8080
+Slow client — partial request
+bash# send headers but never finish — server must not block other clients
+(printf "GET / HTTP/1.1\r\nHost: loc"; sleep 30) | nc localhost 8080 &
+
+# while that is hanging, this must still work immediately
+curl http://localhost:8080/
+Keep-alive — multiple requests on same connection
+bash# send two requests back to back on same connection
+printf "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\nGET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" | nc localhost 8080
+Negative Content-Length
+bashprintf "POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: -5\r\n\r\nhello" | nc localhost 8080
+Very long header value
+bashprintf "GET / HTTP/1.1\r\nHost: localhost\r\nX-Custom: $(python3 -c "print('A' * 10000)")\r\n\r\n" | nc localhost 8080
+Many headers
+bashpython3 -c "
+headers = 'GET / HTTP/1.1\r\nHost: localhost\r\n'
+for i in range(1000):
+    headers += f'X-Header-{i}: value\r\n'
+headers += '\r\n'
+print(headers, end='')" | nc localhost 8080
+Connection handling under load
+bash# many rapid connections
+for i in {1..100}; do
+    curl -s http://localhost:8080/ &
+done
+wait
+
+# check server is still alive after the storm
+curl http://localhost:8080/
+Check for file descriptor leaks
+bash# get your server's PID
+ps aux | grep eventLoop
+
+# check open file descriptors before
+lsof -p <PID> | wc -l
+
+# hammer it with connections
+for i in {1..50}; do curl -s http://localhost:8080/ ; done
+
+# check open file descriptors after — number should be the same
+lsof -p <PID> | wc -l
