@@ -6,7 +6,7 @@
 /*   By: atran <atran@student.hive.fi>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/29 10:22:32 by atran             #+#    #+#             */
-/*   Updated: 2026/04/05 09:02:36 by atran            ###   ########.fr       */
+/*   Updated: 2026/04/06 14:55:45 by atran            ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -25,6 +25,9 @@ bool tryParseRequest(Connection &client, Request &req){
         return false;
     req.parse(rbuf);
     rbuf.clear();
+
+    if (req.isError())
+        return false;
 
     return req.isDone();
 }
@@ -65,7 +68,7 @@ int main(){
             client_pfd.revents = 0;
             poll_fds.push_back(client_pfd);
 
-            std::cout << "New client connected! fd =" << clients.back().fd() << std::endl; 
+            std::cout << "New client connected! fd =" << clients.back().fd() << std::endl;
         }
 
         //Handle existing client
@@ -73,7 +76,7 @@ int main(){
             pollfd& pfd = poll_fds[i];
             Connection& client = clients[i -1];
             Request& req = requests[i - 1];
-            
+
             //Read
             if (pfd.revents & POLLIN){
                 if (!client.read_from_socket()){
@@ -91,11 +94,24 @@ int main(){
                             << "Path: " << req.path << "\n"
                             << "Host: " << req.headers["Host"] << "\n"
                             << "Body: " << req.body << "\n";
-                    
+
                     // TODO: replace with buildResponse(req) when ready
                     client.getWriteBuffer() +=
                         "HTTP/1.1 200 OK\r\n"
                         "Content-Length: 2\r\n"
+                        "Connection: close\r\n"
+                        "\r\n"
+                        "OK";
+                    req = Request{};
+                    pfd.events |= POLLOUT;
+                }
+                else{
+                    client.getWriteBuffer() +=
+                        "HTTP/1.1 " +
+                        std::to_string(req.getStatusCode()) +
+                        " Error MEDTHOD"
+                        "\r\n"
+                        "Content-Length: 0\r\n"
                         "Connection: close\r\n"
                         "\r\n"
                         "OK";

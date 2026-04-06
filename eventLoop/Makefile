@@ -6,13 +6,14 @@
 #    By: atran <atran@student.hive.fi>              +#+  +:+       +#+         #
 #                                                 +#+#+#+#+#+   +#+            #
 #    Created: 2025/12/09 11:16:10 by atran             #+#    #+#              #
-#    Updated: 2026/04/04 14:32:23 by atran            ###   ########.fr        #
+#    Updated: 2026/04/06 14:17:25 by atran            ###   ########.fr        #
 #                                                                              #
 # **************************************************************************** #
 
 NAME = eventLoop
 
-SRCS = main.cpp Socket.cpp ServerSocket.cpp Connection.cpp parse.cpp
+SRCS = main.cpp Socket.cpp ServerSocket.cpp Connection.cpp parse.cpp parse_body.cpp \
+	parse_request.cpp
 
 OBJS = $(SRCS:%.cpp=%.o)
 

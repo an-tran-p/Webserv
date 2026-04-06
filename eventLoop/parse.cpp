@@ -3,83 +3,104 @@
 /*                                                        :::      ::::::::   */
 /*   parse.cpp                                          :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: juhyeonl <juhyeonl@student.42.fr>          +#+  +:+       +#+        */
+/*   By: atran <atran@student.hive.fi>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/21 00:16:44 by juhyeonl          #+#    #+#             */
-/*   Updated: 2026/01/27 16:49:29 by juhyeonl         ###   ########.fr       */
+/*   Updated: 2026/04/06 15:18:23 by atran            ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "parse.hpp"
 
-Request::Request() : _state(REQUEST_LINE), _content_length(0)
+Request::Request()
+    : _state(REQUEST_LINE),
+      _contentLength(0),
+      _bodyBytesRead(0),
+      _chunkSize(0),
+      _chunkSizeParsed(false),
+      _statusCode(0),
+      keepAlive(false),
+      isChunked(false)
+{}
+
+Request::~Request() {}
+
+void    Request::reset()
 {
+    _buffer.clear();
+    _state           = REQUEST_LINE;
+    _contentLength   = 0;
+    _bodyBytesRead   = 0;
+    _chunkSize       = 0;
+    _chunkSizeParsed = false;
+    _statusCode      = 0;
+    keepAlive        = false;
+    isChunked        = false;
+    method.clear();
+    path.clear();
+    queryString.clear();
+    protocol.clear();
+    headers.clear();
+    body.clear();
 }
 
-Request::~Request()
-{
-}
-
-bool	Request::isDone() const
-{
-	return (_state == DONE);
-}
-
-void Request::parse(std::string chunk)
+void    Request::parse(const std::string &chunk)
 {
     _buffer += chunk;
-    while (_state != DONE && _state != ERROR)
+
+    bool    progress = true;
+    while (progress && _state != DONE && _state != ERROR)
     {
+        progress = false;
         if (_state == REQUEST_LINE)
-        {
-            size_t pos = _buffer.find("\r\n");
-            if (pos == std::string::npos)
-				return;
-            std::string line = _buffer.substr(0, pos);
-            std::stringstream ss(line);
-            ss >> method >> path >> protocol;
-            _buffer.erase(0, pos + 2);
-            _state = HEADERS;
-        }
+            progress = _parseRequestLine();
         else if (_state == HEADERS)
-        {
-            size_t pos = _buffer.find("\r\n");
-            if (pos == std::string::npos)
-				return ;
-            std::string line = _buffer.substr(0, pos);
-            if (line.empty())
-            {
-                _buffer.erase(0, pos + 2);
-                if (headers.count("Content-Length"))
-                {
-                    _content_length = std::atoi(headers["Content-Length"].c_str());
-                    _state = BODY;
-                }
-                else
-                    _state = DONE;
-            }
-            else
-            {
-                size_t colon = line.find(":");
-                if (colon != std::string::npos)
-                {
-                    std::string key = line.substr(0, colon);
-                    std::string value = line.substr(colon + 1);
-                    headers[key] = value;
-                }
-                _buffer.erase(0, pos + 2);
-            }
-        }
+            progress = _parseHeaders();
         else if (_state == BODY)
-        {
-            if (_buffer.length() >= _content_length)
-            {
-                body = _buffer.substr(0, _content_length);
-                _buffer.erase(0, _content_length);
-                _state = DONE;
-            }
-            else
-                return ;
-        }
+            progress = _parseBody();
+        else if (_state == CHUNKED_BODY)
+            progress = _parseChunkedBody();
     }
+}
+
+bool    Request::isDone() const
+{
+    return (_state == DONE);
+}
+
+bool    Request::isError() const
+{
+    return (_state == ERROR);
+}
+
+int    Request::getStatusCode() const
+{
+    return (_statusCode);
+}
+
+void    Request::_setError(int code)
+{
+    _statusCode = code;
+    _state      = ERROR;
+}
+
+std::string    Request::_trim(const std::string &s) const
+{
+    const std::string    ws = " \t\r\n";
+    size_t                start = s.find_first_not_of(ws);
+
+    if (start == std::string::npos)
+        return ("");
+    size_t    end = s.find_last_not_of(ws);
+    return (s.substr(start, end - start + 1));
+}
+
+bool    Request::_findCRLF(size_t &pos) const
+{
+    size_t    found = _buffer.find("\r\n");
+
+    if (found == std::string::npos)
+        return (false);
+    pos = found;
+    return (true);
 }

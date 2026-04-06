@@ -3,48 +3,70 @@
 /*                                                        :::      ::::::::   */
 /*   parse.hpp                                          :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: juhyeonl <juhyeonl@student.42.fr>          +#+  +:+       +#+        */
+/*   By: atran <atran@student.hive.fi>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/21 00:15:36 by juhyeonl          #+#    #+#             */
-/*   Updated: 2026/01/27 16:46:30 by juhyeonl         ###   ########.fr       */
+/*   Updated: 2026/04/06 15:07:11 by atran            ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
-#ifndef REQUEST_HPP
-# define REQUEST_HPP
-
+#ifndef PARSE_HPP
+#define PARSE_HPP
 #include <string>
 #include <map>
-#include <sstream>
 #include <cstdlib>
+#include <iostream>
 
-enum	e_parse_state
+enum e_parse_state
 {
-	REQUEST_LINE,
-	HEADERS,
-	BODY,
-	DONE,
-	ERROR
+    REQUEST_LINE,
+    HEADERS,
+    BODY,
+    CHUNKED_BODY,
+    DONE,
+    ERROR
 };
 
-class	Request
+// HTTP request parser — called by An's event loop via parse() and isDone()
+// Results are read directly by Jasmine's routing layer via public fields
+class Request
 {
-	private: 
-		std::string		_buffer;
-		e_parse_state	_state;
-		size_t			_content_length;
-	public:
-		std::string		method;
-		std::string		path;
-		std::string		protocol;
-		std::map<std::string, std::string> headers;
-		std::string		body;
-		
-		Request();
-		~Request();
+private:
+    std::string     _buffer;
+    e_parse_state   _state;
+    size_t          _contentLength;
+    size_t          _bodyBytesRead;
+    size_t          _chunkSize;
+    bool            _chunkSizeParsed;
+    int             _statusCode;
 
-		void	parse(std::string chunk);
-		bool	isDone() const;
+    bool        _parseRequestLine();
+    bool        _parseHeaders();
+    bool        _parseBody();
+    bool        _parseChunkedBody();
+    void        _processHeadersComplete();
+    std::string _trim(const std::string &s) const;
+    bool        _findCRLF(size_t &pos) const;
+    void        _setError(int code);
+
+public:
+    std::string                         method;
+    std::string                         path;
+    std::string                         queryString;
+    std::string                         protocol;
+    std::map<std::string, std::string>  headers;
+    std::string                         body;
+    bool                                keepAlive;
+    bool                                isChunked;
+
+    Request();
+    ~Request();
+
+    void    parse(const std::string &chunk);
+    bool    isDone() const;
+    bool    isError() const;
+    int     getStatusCode() const;
+    void    reset();
 };
 
 #endif
