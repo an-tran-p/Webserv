@@ -6,7 +6,7 @@
 /*   By: atran <atran@student.hive.fi>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/29 10:22:32 by atran             #+#    #+#             */
-/*   Updated: 2026/04/06 14:55:45 by atran            ###   ########.fr       */
+/*   Updated: 2026/04/14 10:32:59 by atran            ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -26,8 +26,9 @@ bool tryParseRequest(Connection &client, Request &req){
     req.parse(rbuf);
     rbuf.clear();
 
-    if (req.isError())
+    if (req.isError()){
         return false;
+    }
 
     return req.isDone();
 }
@@ -102,6 +103,8 @@ int main(){
                         "Connection: close\r\n"
                         "\r\n"
                         "OK";
+                    if (req.headers["Connection"] == "close")
+                        client.setCloseAfterWrite(true);
                     req = Request{};
                     pfd.events |= POLLOUT;
                 }
@@ -115,6 +118,7 @@ int main(){
                         "Connection: close\r\n"
                         "\r\n"
                         "OK";
+                    client.setCloseAfterWrite(true);
                     req = Request{};
                     pfd.events |= POLLOUT;
                 }
@@ -123,8 +127,16 @@ int main(){
             if (pfd.revents & POLLOUT){
                 client.write_to_socket();
                 //Write buffer drained: disable POLLOUT so poll() can sleep properly
-                if (client.getWriteBuffer().empty())
+                if (client.getWriteBuffer().empty()) {
                     pfd.events &= ~POLLOUT;
+                    if (client.shouldCloseAfterWrite()){
+                        //remove client from pool_fds, clients, requests
+                        clients.erase(clients.begin() + (i -1));
+                        requests.erase(requests.begin() + (i -1));
+                        poll_fds.erase(poll_fds.begin() + 1);
+                        --i;
+                    }
+                }
             }
         }
     }

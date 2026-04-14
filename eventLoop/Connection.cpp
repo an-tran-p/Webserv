@@ -6,7 +6,7 @@
 /*   By: atran <atran@student.hive.fi>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/03/27 09:58:35 by atran             #+#    #+#             */
-/*   Updated: 2026/04/04 13:41:15 by atran            ###   ########.fr       */
+/*   Updated: 2026/04/14 10:26:27 by atran            ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -17,7 +17,7 @@
 #include <iostream>
 #include <cstring>
 
-Connection::Connection(Socket &&socket): _socket(std::move(socket)), _readBuffer(), _writeBuffer() {}
+Connection::Connection(Socket &&socket): _socket(std::move(socket)), _readBuffer(), _writeBuffer(), _closeAfterWrite(false) {}
 
 int Connection::fd() const{
     return _socket.fd();
@@ -60,4 +60,12 @@ bool Connection::write_to_socket(){
     }
     _writeBuffer.erase(0, bytes);
     return true;
+}
+
+void Connection::setCloseAfterWrite(int status){
+    _closeAfterWrite = status;
+}
+
+bool Connection::shouldCloseAfterWrite() const{
+    return _closeAfterWrite;
 }
