@@ -18,7 +18,6 @@
 #include <poll.h>
 #include <vector>
 #include <algorithm>
-#include <ctime>  // [LEE] for std::time(nullptr)
 
 bool tryParseRequest(Connection &client, Request &req){
     std::string &rbuf = client.getReadBuffer();
@@ -51,13 +50,12 @@ int main(){
 
     std::cout << "Server running on port " << PORT << std::endl;
     while (true){
-        // [LEE 2026-04-16] poll timeout -1 → 1000ms so we can check request timeouts each tick
-        int ret = poll(poll_fds.data(), poll_fds.size(), 1000);
+        //wait for activity on any socket
+        int ret = poll(poll_fds.data(), poll_fds.size(), -1);
         if (ret < 0){
             perror("poll");
             break;
         }
-        time_t now = std::time(nullptr);  // [LEE] current time for timeout check
         //New connection on the server socket
         if (poll_fds[0].revents & POLLIN){
             Socket clientSock = server.accept_client();
@@ -79,20 +77,6 @@ int main(){
             pollfd& pfd = poll_fds[i];
             Connection& client = clients[i -1];
             Request& req = requests[i - 1];
-
-            // === [LEE 2026-04-16] incomplete request timeout (>30s idle) → 408 + close ===
-            if (req.hasTimedOut(now) && !client.shouldCloseAfterWrite()){
-                client.getWriteBuffer() +=
-                    "HTTP/1.1 408 Request Timeout\r\n"
-                    "Content-Length: 0\r\n"
-                    "Connection: close\r\n"
-                    "\r\n";
-                client.setCloseAfterWrite(true);
-                req = Request{};
-                pfd.events |= POLLOUT;
-                continue;
-            }
-            // === [LEE end] ===
 
             //Read
             if (pfd.revents & POLLIN){
