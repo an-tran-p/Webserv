@@ -14,6 +14,7 @@
 #include "ServerSocket.hpp"
 #include "Connection.hpp"
 #include "parse.hpp"
+#include "config.hpp"
 #include <iostream>
 #include <poll.h>
 #include <vector>
@@ -33,22 +34,39 @@ bool tryParseRequest(Connection &client, Request &req){
     return req.isDone();
 }
 
-int main(){
-    const int PORT = 8080;
-    ServerSocket server(PORT);
-    server.bind_and_listen();
+int main(int argc,char *argv[]){
+    //use a loop to loop through the config class until it's the end
+    std::vector<Server> servers;
+    std::string filename;
+    if (argc != 2)
+        return (1);
+    filename = argv[1];
+     std::ifstream file(filename);
+    try {
+        while (!(file >> std::ws).eof())  // skip the spaces and not end of the file
+            parseServer(file, servers);
+        std::cout << "\n" << route(servers, "example.com", "/def/index.html") << "\n";
+    } catch (std::exception& error) 
+    {
+        std::cout << "[ERROR] " << error.what() << "\n";
+    }
 
-    std::vector<Connection> clients;
-    std::vector<Request> requests;
+    for (Server& config: servers) {
+        ServerSocket server(std::stoi(config.port));
+        server.bind_and_listen();
+        std::vector<Connection> clients;
+        std::vector<Request> requests;
+       
+        
+        std::cout << "Server running on port " << config.port << std::endl;
+    }
     std::vector<pollfd> poll_fds;
-
     pollfd server_pfd;
     server_pfd.fd = server.fd();
     server_pfd.events = POLLIN;
     server_pfd.revents = 0;
     poll_fds.push_back(server_pfd);
 
-    std::cout << "Server running on port " << PORT << std::endl;
     while (true){
         //wait for activity on any socket
         int ret = poll(poll_fds.data(), poll_fds.size(), -1);
