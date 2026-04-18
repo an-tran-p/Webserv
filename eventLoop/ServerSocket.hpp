@@ -29,8 +29,11 @@ class ServerSocket{
         explicit ServerSocket(int port);
         ServerSocket(const ServerSocket &src) = delete;
         ServerSocket &operator=(const ServerSocket &src) = delete;
+        ServerSocket(ServerSocket&& src);
+        ServerSocket &operator=(ServerSocket &&src);
         ~ServerSocket() = default;
 
+        void createSocket(int port);
         void bind_and_listen();
         Socket accept_client();
         int fd() const;

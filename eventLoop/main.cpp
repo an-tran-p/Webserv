@@ -35,8 +35,7 @@ bool tryParseRequest(Connection &client, Request &req){
 }
 
 int main(int argc,char *argv[]){
-    //use a loop to loop through the config class until it's the end
-    std::vector<Server> servers;
+    std::vector<Server> configs;
     std::string filename;
     if (argc != 2)
         return (1);
@@ -44,23 +43,29 @@ int main(int argc,char *argv[]){
      std::ifstream file(filename);
     try {
         while (!(file >> std::ws).eof())  // skip the spaces and not end of the file
-            parseServer(file, servers);
-        std::cout << "\n" << route(servers, "example.com", "/def/index.html") << "\n";
+            parseServer(file, configs);
+        std::cout << "\n" << route(configs, "example.com", "/def/index.html") << "\n";
     } catch (std::exception& error) 
     {
         std::cout << "[ERROR] " << error.what() << "\n";
     }
-
-    for (Server& config: servers) {
-        ServerSocket server(std::stoi(config.port));
-        server.bind_and_listen();
-        std::vector<Connection> clients;
-        std::vector<Request> requests;
-       
+    std::vector<ServerSocket> clusters;
+    
+    for (Server& config: configs) {
         
+        clusters.emplace_back(std::stoi(config.port));
         std::cout << "Server running on port " << config.port << std::endl;
     }
+    for (size_t i = 0; i < clusters.size(); i++)
+    {
+        clusters[i].bind_and_listen();
+    }
+
+    std::vector<Connection> clients;
+    std::vector<Request> requests;
     std::vector<pollfd> poll_fds;
+    ServerSocket server(8080);
+    server.bind_and_listen();
     pollfd server_pfd;
     server_pfd.fd = server.fd();
     server_pfd.events = POLLIN;

@@ -20,13 +20,42 @@ ServerSocket::ServerSocket(int port): _socket(Socket::create_tcp()), _port(port)
     _addr.sin_addr.s_addr = INADDR_ANY;
 }
 
+// ServerSocket::ServerSocket(const ServerSocket &src)
+// {
+//     operator=(src);
+// }
+// ServerSocket &ServerSocket::operator=(const ServerSocket &src)
+// {
+//     if (this != &src) {
+//         _socket = src._socket;
+//         _addr = src._addr;
+//         _port = src._port;
+//     }
+//     return *this;
+// }
+
+ServerSocket::ServerSocket(ServerSocket &&src)
+{
+    operator=(std::move(src));
+}
+ServerSocket &ServerSocket::operator=(ServerSocket &&src)
+{
+    if (this != &src) {
+        _socket = std::move(src._socket);
+        _addr = src._addr;
+        _port = src._port;
+    }
+    return *this;
+}
+
 void ServerSocket::bind_and_listen(){
     int opt = 1;
 
+    std::cout << "fd = " << _socket.fd() << std::endl;
     if (setsockopt(_socket.fd(), SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
         throw std::runtime_error("setsockopt toreuseof port failed");
 
-    if (fcntl(_socket.fd(), SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
+    if (fcntl(_socket.fd(), F_SETFL, fcntl(_socket.fd(), F_GETFL, 0) | O_NONBLOCK ))
         throw std::runtime_error("fcntl on server socket failed");
     
     if (bind(_socket.fd(), reinterpret_cast<sockaddr*>(&_addr), sizeof(_addr)) < 0)

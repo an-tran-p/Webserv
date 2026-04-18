@@ -17,8 +17,10 @@ Socket::Socket(): _fd(-1){}
 Socket::Socket(int fd): _fd(fd){}
 
 Socket::~Socket(){
-    if (_fd != -1)
+    if (_fd != -1) {
         ::close(_fd);
+        printf("CLOSING %d\n", _fd);
+    }
 }
 
 Socket::Socket(Socket &&src): _fd(src._fd){
@@ -51,3 +53,15 @@ void Socket::close_fd(){
         _fd = -1;
     }
 }
+
+// Socket::Socket(const Socket &src)
+// {
+//     _fd = src._fd;
+// }
+
+// Socket &Socket::operator=(const Socket &src)
+// {
+//     if (this != &src)
+//         _fd = src._fd;
+//     return *this;
+// }
