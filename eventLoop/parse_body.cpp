@@ -58,6 +58,9 @@ bool    Request::_parseChunkedBody()
                 return (_setError(400), false);
             _chunkSize       = static_cast<size_t>(size);
             _chunkSizeParsed = true;
+            // [LEE 2026-04-16] chunked body cumulative size limit → 413
+            if (body.size() + _chunkSize > MAX_BODY_SIZE)
+                return (_setError(413), false);
             if (_chunkSize == 0)
             {
                 if (_buffer.size() >= 2)

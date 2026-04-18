@@ -39,9 +39,21 @@ bool    Request::_parseRequestLine()
     if (method != "GET" && method != "POST" && method != "DELETE")
         return (_setError(405), false);
 
+    // === [LEE 2026-04-16] protocol validation: 400 bad format / 505 unsupported version ===
+    if (!_isValidProtocol(protocol))
+    {
+        if (protocol.size() < 5 || protocol.compare(0, 5, "HTTP/") != 0)
+            return (_setError(400), false);
+        return (_setError(505), false);
+    }
+    // === [LEE end] ===
+
     std::string    rawUri = line.substr(sp1 + 1, sp2 - sp1 - 1);
     if (rawUri.empty() || rawUri[0] != '/')
         return (_setError(400), false);
+    // [LEE 2026-04-16] too long URL → 414
+    if (rawUri.size() > MAX_URI_LENGTH)
+        return (_setError(414), false);
 
     size_t    qmark = rawUri.find('?');
     if (qmark != std::string::npos)
@@ -54,6 +66,9 @@ bool    Request::_parseRequestLine()
         path        = rawUri;
         queryString = "";
     }
+    // [LEE 2026-04-16] path traversal & control char check → 400
+    if (!_isValidPath(path))
+        return (_setError(400), false);
     _state = HEADERS;
     return (true);
 }
@@ -90,14 +105,25 @@ void    Request::_processHeadersComplete()
 {
     std::map<std::string, std::string>::iterator    it;
 
+    // === [LEE 2026-04-16] Connection header: case-insensitive (close / keep-alive / CLOSE / Keep-Alive) ===
     it = headers.find("Connection");
     if (it != headers.end())
-        keepAlive = (_trim(it->second) == "keep-alive");
+    {
+        std::string    conn = _toLower(_trim(it->second));
+        if (conn == "close")
+            keepAlive = false;
+        else if (conn == "keep-alive")
+            keepAlive = true;
+        else
+            keepAlive = (protocol == "HTTP/1.1");
+    }
     else
         keepAlive = (protocol == "HTTP/1.1");
+    // === [LEE end] ===
 
     it = headers.find("Transfer-Encoding");
-    if (it != headers.end() && _trim(it->second) == "chunked")
+    // [LEE] case-insensitive "chunked"
+    if (it != headers.end() && _toLower(_trim(it->second)) == "chunked")
         isChunked = true;
 
     it = headers.find("Content-Length");
@@ -109,6 +135,12 @@ void    Request::_processHeadersComplete()
         if (*endPtr != '\0' || len < 0)
         {
             _setError(400);
+            return ;
+        }
+        // [LEE 2026-04-16] Content-Length too big → 413
+        if (static_cast<size_t>(len) > MAX_BODY_SIZE)
+        {
+            _setError(413);
             return ;
         }
         _contentLength = static_cast<size_t>(len);

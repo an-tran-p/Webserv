@@ -19,6 +19,7 @@ Request::Request()
       _chunkSize(0),
       _chunkSizeParsed(false),
       _statusCode(0),
+      _lastActivity(std::time(nullptr)),  // [LEE]
       keepAlive(false),
       isChunked(false)
 {}
@@ -34,6 +35,7 @@ void    Request::reset()
     _chunkSize       = 0;
     _chunkSizeParsed = false;
     _statusCode      = 0;
+    _lastActivity    = std::time(nullptr);  // [LEE]
     keepAlive        = false;
     isChunked        = false;
     method.clear();
@@ -47,6 +49,7 @@ void    Request::reset()
 void    Request::parse(const std::string &chunk)
 {
     _buffer += chunk;
+    _lastActivity = std::time(nullptr);  // [LEE] reset idle timer on data
 
     bool    progress = true;
     while (progress && _state != DONE && _state != ERROR)
@@ -73,9 +76,26 @@ bool    Request::isError() const
     return (_state == ERROR);
 }
 
+// === [LEE 2026-04-16] incomplete request / timeout API ===
+bool    Request::isWaiting() const
+{
+    return (_state != DONE && _state != ERROR);
+}
+
+bool    Request::hasTimedOut(time_t now) const
+{
+    return (isWaiting() && (now - _lastActivity) > REQUEST_TIMEOUT);
+}
+// === [LEE end] ===
+
 int    Request::getStatusCode() const
 {
     return (_statusCode);
+}
+
+time_t    Request::getLastActivity() const  // [LEE]
+{
+    return (_lastActivity);
 }
 
 void    Request::_setError(int code)
@@ -104,3 +124,38 @@ bool    Request::_findCRLF(size_t &pos) const
     pos = found;
     return (true);
 }
+
+// === [LEE 2026-04-16] validation helpers ===
+std::string    Request::_toLower(const std::string &s) const
+{
+    std::string    out(s);
+    for (size_t i = 0; i < out.size(); ++i)
+    {
+        if (out[i] >= 'A' && out[i] <= 'Z')
+            out[i] = static_cast<char>(out[i] + 32);
+    }
+    return (out);
+}
+
+bool    Request::_isValidPath(const std::string &p) const
+{
+    if (p.empty() || p[0] != '/')
+        return (false);
+    for (size_t i = 0; i < p.size(); ++i)
+    {
+        unsigned char    c = static_cast<unsigned char>(p[i]);
+        if (c < 0x20 || c == 0x7F)
+            return (false);
+    }
+    if (p == "/.." || p.find("/../") != std::string::npos)
+        return (false);
+    if (p.size() >= 3 && p.compare(p.size() - 3, 3, "/..") == 0)
+        return (false);
+    return (true);
+}
+
+bool    Request::_isValidProtocol(const std::string &p) const
+{
+    return (p == "HTTP/1.0" || p == "HTTP/1.1");
+}
+// === [LEE end] ===
