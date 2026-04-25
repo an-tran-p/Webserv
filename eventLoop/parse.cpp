@@ -20,6 +20,7 @@ Request::Request()
       _chunkSizeParsed(false),
       _statusCode(0),
       _lastActivity(std::time(nullptr)),  // [LEE]
+      _emptyLineCount(0),  // [LEE 2026-04-26] empty line counter init
       keepAlive(false),
       isChunked(false)
 {}
@@ -36,6 +37,7 @@ void    Request::reset()
     _chunkSizeParsed = false;
     _statusCode      = 0;
     _lastActivity    = std::time(nullptr);  // [LEE]
+    _emptyLineCount  = 0;  // [LEE 2026-04-26]
     keepAlive        = false;
     isChunked        = false;
     method.clear();
@@ -97,6 +99,38 @@ time_t    Request::getLastActivity() const  // [LEE]
 {
     return (_lastActivity);
 }
+
+// === [LEE 2026-04-26] pipelining support ===
+// Returns leftover bytes in _buffer that belong to the next pipelined request.
+const std::string&    Request::getLeftover() const
+{
+    return (_buffer);
+}
+
+// Reset all state EXCEPT _buffer, then re-trigger parse() so any leftover
+// bytes from a pipelined request start being processed immediately.
+// main.cpp can call this with a single line instead of manually copying _buffer.
+void    Request::resetKeepBuffer()
+{
+    _state           = REQUEST_LINE;
+    _contentLength   = 0;
+    _bodyBytesRead   = 0;
+    _chunkSize       = 0;
+    _chunkSizeParsed = false;
+    _statusCode      = 0;
+    _lastActivity    = std::time(nullptr);
+    _emptyLineCount  = 0;
+    keepAlive        = false;
+    isChunked        = false;
+    method.clear();
+    path.clear();
+    queryString.clear();
+    protocol.clear();
+    headers.clear();
+    body.clear();
+    parse("");
+}
+// === [LEE 2026-04-26 end] ===
 
 void    Request::_setError(int code)
 {

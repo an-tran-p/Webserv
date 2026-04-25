@@ -22,8 +22,21 @@ bool    Request::_parseRequestLine()
     std::string    line = _buffer.substr(0, pos);
     _buffer.erase(0, pos + 2);
 
+    // === [LEE 2026-04-26] empty request line: count + reject after threshold ===
+    // Why: test.txt:12 sends only "\r\n\r\n". The old code skipped empty
+    // lines forever, leaving the connection idle until socket timeout. We now
+    // tolerate a few stray CRLFs (some clients send a leading CRLF after a
+    // pipelined request) but reject 8+ as malformed.
+    // ORIGINAL:
+    // if (_trim(line).empty())
+    //     return (true);
     if (_trim(line).empty())
+    {
+        if (++_emptyLineCount > 8)
+            return (_setError(400), false);
         return (true);
+    }
+    // === [LEE 2026-04-26 end] ===
 
     size_t    sp1 = line.find(' ');
     if (sp1 == std::string::npos)
@@ -75,30 +88,73 @@ bool    Request::_parseRequestLine()
 
 bool    Request::_parseHeaders()
 {
-	std::string    key;
-	std::string    value;
+    // === [LEE 2026-04-26] _parseHeaders rewritten ===
+    // Why (bug fix): the merged version pre-declared `key` and `value` outside
+    // the loop and gated the empty-line check on `!key.empty()`. That broke
+    // requests with zero headers (e.g. "GET / HTTP/1.1\r\n\r\n") because the
+    // empty line was never recognized as the end of headers and we fell
+    // through to the colon check, returning 400.
+    // Why (limits): test.txt:34, 41 send 10000-char header values and 1000
+    // headers. We now reject oversized lines and over-count headers with 431.
+    // ORIGINAL:
+    // std::string    key;
+    // std::string    value;
+    // while (true)
+    // {
+    //     size_t    pos;
+    //     if (!_findCRLF(pos))
+    //         return (false);
+    //     std::string    line = _buffer.substr(0, pos);
+    //     _buffer.erase(0, pos + 2);
+    //     if (!key.empty() && line.empty())
+    //     {
+    //         _processHeadersComplete();
+    //         return (true);
+    //     }
+    //     size_t    colon = line.find(':');
+    //     if (colon == std::string::npos)
+    //         return (_setError(400), false);
+    //     key   = _trim(line.substr(0, colon));
+    //     value = _trim(line.substr(colon + 1));
+    //
+    //     if (key.empty())
+    //         return (_setError(400), false);
+    //     headers[key] = value;
+    // }
     while (true)
     {
         size_t    pos;
         if (!_findCRLF(pos))
             return (false);
+
+        if (pos > MAX_HEADER_SIZE)
+            return (_setError(431), false);
+
         std::string    line = _buffer.substr(0, pos);
         _buffer.erase(0, pos + 2);
-        if (!key.empty() && line.empty())
+
+        if (line.empty())
         {
             _processHeadersComplete();
             return (true);
         }
+
         size_t    colon = line.find(':');
         if (colon == std::string::npos)
             return (_setError(400), false);
-        key   = _trim(line.substr(0, colon));
-        value = _trim(line.substr(colon + 1));
+
+        std::string    key   = _trim(line.substr(0, colon));
+        std::string    value = _trim(line.substr(colon + 1));
 
         if (key.empty())
             return (_setError(400), false);
+
+        if (headers.size() >= MAX_HEADER_COUNT)
+            return (_setError(431), false);
+
         headers[key] = value;
     }
+    // === [LEE 2026-04-26 end] ===
 }
 
 void    Request::_processHeadersComplete()
@@ -145,6 +201,16 @@ void    Request::_processHeadersComplete()
         }
         _contentLength = static_cast<size_t>(len);
     }
+    // === [LEE 2026-04-26] reject Content-Length + Transfer-Encoding together ===
+    // Why: test.txt:21 sends both headers. RFC 7230 §3.3.3 mandates 400 here
+    // (request smuggling vector). Previously isChunked silently won and
+    // Content-Length was ignored.
+    if (isChunked && headers.count("Content-Length"))
+    {
+        _setError(400);
+        return ;
+    }
+    // === [LEE 2026-04-26 end] ===
     if (isChunked)
         _state = CHUNKED_BODY;
     else if (_contentLength > 0)
