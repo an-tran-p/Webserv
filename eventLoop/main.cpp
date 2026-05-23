@@ -6,7 +6,7 @@
 /*   By: atran <atran@student.hive.fi>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/29 10:22:32 by atran             #+#    #+#             */
-/*   Updated: 2026/05/22 13:45:38 by atran            ###   ########.fr       */
+/*   Updated: 2026/05/23 13:23:38 by atran            ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -98,7 +98,7 @@ int main(){
                         client.getWriteBuffer() += resp.build(req.keepAlive);
                         client.setCloseAfterWrite(true);
                     } else {
-                        // temporary hardcoded 200 until your partner writes handleRequest()
+                        // temporary hardcoded 200
                         Response resp;
                         resp.setStatus(200);
                         resp.setContentType("text/html");
