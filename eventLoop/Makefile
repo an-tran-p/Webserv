@@ -12,7 +12,7 @@
 
 NAME = eventLoop
 
-SRCS = main.cpp Socket.cpp ServerSocket.cpp Connection.cpp parse.cpp parse_body.cpp config.cpp\
+SRCS = main.cpp Socket.cpp ServerSocket.cpp Connection.cpp parse.cpp parse_body.cpp \
 	parse_request.cpp
 
 OBJS = $(SRCS:%.cpp=%.o)
