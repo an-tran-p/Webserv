@@ -6,13 +6,14 @@
 /*   By: atran <atran@student.hive.fi>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/29 10:22:32 by atran             #+#    #+#             */
-/*   Updated: 2026/04/14 10:32:59 by atran            ###   ########.fr       */
+/*   Updated: 2026/05/22 13:45:38 by atran            ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "Socket.hpp"
 #include "ServerSocket.hpp"
 #include "Connection.hpp"
+#include "Response.hpp"
 #include "parse.hpp"
 #include <iostream>
 #include <poll.h>
@@ -25,11 +26,8 @@ bool tryParseRequest(Connection &client, Request &req){
         return false;
     req.parse(rbuf);
     rbuf.clear();
-
-    if (req.isError()){
-        return false;
-    }
-
+    if (req.isError())
+        return true; 
     return req.isDone();
 }
 
@@ -95,30 +93,19 @@ int main(){
                             << "Path: " << req.path << "\n"
                             << "Host: " << req.headers["Host"] << "\n"
                             << "Body: " << req.body << "\n";
-
-                    // TODO: replace with buildResponse(req) when ready
-                    client.getWriteBuffer() +=
-                        "HTTP/1.1 200 OK\r\n"
-                        "Content-Length: 2\r\n"
-                        "Connection: close\r\n"
-                        "\r\n"
-                        "OK";
-                    if (req.headers["Connection"] == "close")
+                    if (req.isError()) {
+                        Response resp = Response::makeError(req.getStatusCode());
+                        client.getWriteBuffer() += resp.build(req.keepAlive);
                         client.setCloseAfterWrite(true);
-                    req = Request{};
-                    pfd.events |= POLLOUT;
-                }
-                else{
-                    client.getWriteBuffer() +=
-                        "HTTP/1.1 " +
-                        std::to_string(req.getStatusCode()) +
-                        " Error MEDTHOD"
-                        "\r\n"
-                        "Content-Length: 0\r\n"
-                        "Connection: close\r\n"
-                        "\r\n"
-                        "OK";
-                    client.setCloseAfterWrite(true);
+                    } else {
+                        // temporary hardcoded 200 until your partner writes handleRequest()
+                        Response resp;
+                        resp.setStatus(200);
+                        resp.setContentType("text/html");
+                        resp.setBody("OK");
+                        client.getWriteBuffer() += resp.build(req.keepAlive);
+                        client.setCloseAfterWrite(!req.keepAlive);
+                    }
                     req = Request{};
                     pfd.events |= POLLOUT;
                 }
@@ -133,7 +120,7 @@ int main(){
                         //remove client from pool_fds, clients, requests
                         clients.erase(clients.begin() + (i -1));
                         requests.erase(requests.begin() + (i -1));
-                        poll_fds.erase(poll_fds.begin() + 1);
+                        poll_fds.erase(poll_fds.begin() + i);
                         --i;
                     }
                 }
