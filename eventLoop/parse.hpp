@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <ctime>
+#include <cerrno>
 
 // === [LEE 2026-04-16] limits & timeout for request validation ===
 #define MAX_URI_LENGTH   8192
@@ -64,7 +65,12 @@ private:
     std::string _trim(const std::string &s) const;
     // === [LEE 2026-04-16] validation helpers ===
     std::string _toLower(const std::string &s) const;
+    bool        _isHeaderToken(const std::string &s) const;
+    bool        _headerHasToken(const std::string &value, const std::string &token) const;
+    int         _hexValue(char c) const;
+    bool        _decodePercentPath(const std::string &src, std::string &dst) const;
     bool        _isValidPath(const std::string &p) const;
+    bool        _hasControlChar(const std::string &s) const;
     bool        _isValidProtocol(const std::string &p) const;
     // === [LEE end] ===
     bool        _findCRLF(size_t &pos) const;
