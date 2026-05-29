@@ -51,26 +51,43 @@ bool    Request::_parseChunkedBody()
             if (sizeLine.empty())
                 return (_setError(400), false);
 
-            char    *endPtr = nullptr;
+            char    *endPtr = NULL;
+            errno = 0;
             long    size = std::strtol(sizeLine.c_str(), &endPtr, 16);
 
-            if (*endPtr != '\0' || size < 0)
+            if (*endPtr != '\0' || size < 0 || errno == ERANGE)
                 return (_setError(400), false);
             _chunkSize       = static_cast<size_t>(size);
             _chunkSizeParsed = true;
             // [LEE 2026-04-16] chunked body cumulative size limit → 413
-            if (body.size() + _chunkSize > MAX_BODY_SIZE)
+            if (_chunkSize > MAX_BODY_SIZE || body.size() > MAX_BODY_SIZE - _chunkSize)
                 return (_setError(413), false);
             if (_chunkSize == 0)
             {
-                if (_buffer.size() >= 2)
-                    _buffer.erase(0, 2);
-                _state = DONE;
-                return (true);
+                while (true)
+                {
+                    if (!_findCRLF(pos))
+                        return (false);
+                    std::string    trailer = _buffer.substr(0, pos);
+                    _buffer.erase(0, pos + 2);
+                    if (trailer.empty())
+                    {
+                        _state = DONE;
+                        return (true);
+                    }
+                    size_t    colon = trailer.find(':');
+                    if (colon == std::string::npos)
+                        return (_setError(400), false);
+                    std::string    key = _toLower(_trim(trailer.substr(0, colon)));
+                    if (!_isHeaderToken(key))
+                        return (_setError(400), false);
+                }
             }
         }
         if (_buffer.size() < _chunkSize + 2)
             return (false);
+        if (_buffer.compare(_chunkSize, 2, "\r\n") != 0)
+            return (_setError(400), false);
         body.append(_buffer, 0, _chunkSize);
         _buffer.erase(0, _chunkSize + 2);
         _chunkSize       = 0;

@@ -17,12 +17,18 @@
 #include <cstdlib>
 #include <iostream>
 #include <ctime>
+#include <cerrno>
 
 // === [LEE 2026-04-16] limits & timeout for request validation ===
 #define MAX_URI_LENGTH   8192
 #define MAX_BODY_SIZE    1048576
 #define REQUEST_TIMEOUT  30
 // === [LEE end] ===
+
+// === [LEE 2026-04-26] header size/count limits (test.txt: many headers, very long header value) ===
+#define MAX_HEADER_SIZE  8192
+#define MAX_HEADER_COUNT 100
+// === [LEE 2026-04-26 end] ===
 
 enum e_parse_state
 {
@@ -47,6 +53,9 @@ private:
     bool            _chunkSizeParsed;
     int             _statusCode;
     time_t          _lastActivity;  // [LEE] for request timeout tracking
+    // === [LEE 2026-04-26] empty request line counter (test.txt: empty request) ===
+    int             _emptyLineCount;
+    // === [LEE 2026-04-26 end] ===
 
     bool        _parseRequestLine();
     bool        _parseHeaders();
@@ -56,7 +65,12 @@ private:
     std::string _trim(const std::string &s) const;
     // === [LEE 2026-04-16] validation helpers ===
     std::string _toLower(const std::string &s) const;
+    bool        _isHeaderToken(const std::string &s) const;
+    bool        _headerHasToken(const std::string &value, const std::string &token) const;
+    int         _hexValue(char c) const;
+    bool        _decodePercentPath(const std::string &src, std::string &dst) const;
     bool        _isValidPath(const std::string &p) const;
+    bool        _hasControlChar(const std::string &s) const;
     bool        _isValidProtocol(const std::string &p) const;
     // === [LEE end] ===
     bool        _findCRLF(size_t &pos) const;
@@ -85,6 +99,10 @@ public:
     int     getStatusCode() const;
     time_t  getLastActivity() const;  // [LEE]
     void    reset();
+    // === [LEE 2026-04-26] pipelining support (test.txt: multiple requests on same connection) ===
+    const std::string&  getLeftover() const;
+    void                resetKeepBuffer();
+    // === [LEE 2026-04-26 end] ===
 };
 
 #endif
