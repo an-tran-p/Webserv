@@ -1,5 +1,6 @@
 #include "../include/ConfigParser.hpp"
-static void parseLocation(std::ifstream& file, std::vector<LocationConfig>& locations);
+static void parseLocation(std::ifstream& file, std::vector<LocationConfig>& locations,
+                          const std::string& serverRoot, const std::string& serverIndex); 
 static void parseServer(std::ifstream& file, std::vector<ServerConfig>& servers);
 
 
@@ -24,10 +25,12 @@ void expect(std::ifstream& file, std::string expected)
         throw std::runtime_error("expected '" + expected + "'");
 }
 
-void parseLocation(std::ifstream& file, std::vector<LocationConfig>& locations)
+void parseLocation(std::ifstream& file, std::vector<LocationConfig>& locations, const std::string& serverRoot, const std::string& serverIndex)
 {
     // Parse the start of the location block.
     LocationConfig location;
+    location.setRoot(serverRoot);   
+    location.setIndex(serverIndex);
     
     location.setLocationPath(nextToken(file));
     expect(file, "{");
@@ -103,7 +106,7 @@ void parseServer(std::ifstream& file, std::vector<ServerConfig>& servers) // par
         {
             break;
         } else if (key == "location") {
-            parseLocation(file, locations);
+            parseLocation(file, locations, server.getRoot(), server.getIndex());
         } 
         else if (key == "listen") 
         {

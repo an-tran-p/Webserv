@@ -12,6 +12,41 @@
 
 #include "EventLoop.hpp"
 
+static std::string readFile(const std::string& filePath)
+{
+    // std::cout << "readFile: " << filePath << "\n";
+    std::ifstream file(filePath, std::ios::binary);
+    if (!file.is_open())
+    {
+        std::cout << "readFile: cannot open file\n";
+        return "";
+    }
+
+    file.seekg(0, std::ios::end);
+    std::streamsize size = file.tellg();
+    if (size < 0)
+    {
+        std::cout << "readFile: invalid size\n";
+        return "";
+    }
+    file.seekg(0, std::ios::beg);
+
+    std::string content(size, '\0');
+    file.read(&content[0], size);
+    return content;
+}
+
+static std::string buildFilePath(const LocationConfig& loc, const std::string& reqPath)
+{
+    std::string filePath = loc.getRoot() + reqPath;
+    // std::cout << "buildFilePath: " << filePath << "\n";
+    if (filePath.back() == '/')
+        filePath += loc.getIndex();
+    // std::cout << "buildFilePath final: " << filePath << "\n";
+    return filePath;
+}
+
+
 bool tryParseRequest(Connection& client, Request& req) {
     std::string& rbuf = client.getReadBuffer();
     if (rbuf.empty())
@@ -93,10 +128,9 @@ bool handleRead(size_t& i, ServerState& state) {
         } else {
 
             bool found = false;
-            Response resp;
             for (const LocationConfig& loc : state.config.getLocations())
             {
-                std::cout << "comparing: '" << loc.getLocationPath() << "' == '" << req.path << "'\n";
+                // std::cout << "comparing: '" << loc.getLocationPath() << "' == '" << req.path << "'\n";
                 if (loc.getLocationPath() == req.path)
                 {
                     found = true;
@@ -105,12 +139,23 @@ bool handleRead(size_t& i, ServerState& state) {
                     if (it != methods.end())
                     {
                         // find method
+                        std::string filePath = buildFilePath(loc, req.path);
+                        std::string content = readFile(filePath);
                         Response resp;
-                        resp.setStatus(200);
-                        resp.setContentType("text/html");
-                        resp.setBody("OK");
-                        client.getWriteBuffer() += resp.build(req.keepAlive);
-                        client.setCloseAfterWrite(!req.keepAlive);
+                        if (content.empty())
+                        {
+                            resp = Response::makeError(404);
+                            client.getWriteBuffer() += resp.build(false);
+                            client.setCloseAfterWrite(true);
+                        }
+                        else
+                        {
+                            resp.setStatus(200);
+                            resp.setContentType("text/html");
+                            resp.setBody(content);
+                            client.getWriteBuffer() += resp.build(req.keepAlive);
+                            client.setCloseAfterWrite(!req.keepAlive);
+                        }
                     }
                     else
                     {
@@ -130,8 +175,8 @@ bool handleRead(size_t& i, ServerState& state) {
                 client.setCloseAfterWrite(true);
             }
 
-            client.getWriteBuffer() += resp.build(req.keepAlive);
-            client.setCloseAfterWrite(!req.keepAlive);
+            // client.getWriteBuffer() += resp.build(req.keepAlive);
+            // client.setCloseAfterWrite(!req.keepAlive);
         }
         req = Request{};
         pfd.events |= POLLOUT;
