@@ -63,6 +63,8 @@ std::string Response::build(bool keepAlive) const {
     resp += "Content-Type: " + _contentType + "\r\n";
     resp += "Content-Length: " + std::to_string(_body.size()) + "\r\n";
     resp += "Connection: " + connection + "\r\n";
+    if (!_location.empty())
+        resp += "Location: " + _location + "\r\n";
     resp += "\r\n";
     resp += _body;
     return resp;
@@ -74,4 +76,9 @@ Response Response::makeError(int code) {
     r.setContentType("text/plain");
     r.setBody(std::to_string(code) + " " + _getReason(code));
     return r;
+}
+
+void Response::setLocation(const std::string& url)
+{
+    _location = url; 
 }

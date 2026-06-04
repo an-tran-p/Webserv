@@ -19,6 +19,7 @@ class Response {
         int _statusCode;
         std::string _contentType;
         std::string _body;
+        std::string _location; // for redirection
 
         static std::string _getReason(int code);
     public:
@@ -31,4 +32,5 @@ class Response {
         void setBody(const std::string &body);
         std::string build(bool keepAlive) const;
         static Response makeError(int code);
+        void setLocation(const std::string& url);
 };

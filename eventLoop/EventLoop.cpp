@@ -46,6 +46,19 @@ static std::string buildFilePath(const LocationConfig& loc, const std::string& r
     return filePath;
 }
 
+static Response make404Response(const std::string& root)
+{
+    std::string content = readFile(root + "/errors/404.html");
+    Response resp;
+    resp.setStatus(404);
+    resp.setContentType("text/html");
+    if (content.empty())
+        resp.setBody("404 Not Found");  
+    else
+        resp.setBody(content);
+    return resp;
+}
+
 
 bool tryParseRequest(Connection& client, Request& req) {
     std::string& rbuf = client.getReadBuffer();
@@ -138,24 +151,37 @@ bool handleRead(size_t& i, ServerState& state) {
                     auto it = std::find(methods.begin(), methods.end(), req.method);
                     if (it != methods.end())
                     {
-                        // find method
-                        std::string filePath = buildFilePath(loc, req.path);
-                        std::string content = readFile(filePath);
-                        Response resp;
-                        if (content.empty())
+                         if (loc.getRedirect().first != 0)
                         {
-                            resp = Response::makeError(404);
+                            Response resp;
+                            resp.setStatus(loc.getRedirect().first);       // 302
+                            resp.setLocation(loc.getRedirect().second);    // https://google.com
                             client.getWriteBuffer() += resp.build(false);
                             client.setCloseAfterWrite(true);
                         }
                         else
                         {
-                            resp.setStatus(200);
-                            resp.setContentType("text/html");
-                            resp.setBody(content);
-                            client.getWriteBuffer() += resp.build(req.keepAlive);
-                            client.setCloseAfterWrite(!req.keepAlive);
+                            // find method
+                            std::string filePath = buildFilePath(loc, req.path);
+                            std::string content = readFile(filePath);
+                            Response resp;
+                            if (content.empty())
+                            {
+                                resp = make404Response(state.config.getRoot());
+                                client.getWriteBuffer() += resp.build(false);
+                                client.setCloseAfterWrite(true);
+                            }
+                            else
+                            {
+                                resp.setStatus(200);
+                                resp.setContentType("text/html");
+                                resp.setBody(content);
+                                client.getWriteBuffer() += resp.build(req.keepAlive);
+                                client.setCloseAfterWrite(!req.keepAlive);
+                            }
                         }
+
+                        
                     }
                     else
                     {
@@ -170,7 +196,7 @@ bool handleRead(size_t& i, ServerState& state) {
             if (!found)
             {
                 // can not found location → 404
-                Response resp = Response::makeError(404);
+                Response resp = make404Response(state.config.getRoot());
                 client.getWriteBuffer() += resp.build(false);
                 client.setCloseAfterWrite(true);
             }
