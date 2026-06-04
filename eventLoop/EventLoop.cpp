@@ -91,11 +91,45 @@ bool handleRead(size_t& i, ServerState& state) {
             client.getWriteBuffer() += resp.build(false);
             client.setCloseAfterWrite(true);
         } else {
-            // temporary hardcoded 200
+
+            bool found = false;
             Response resp;
-            resp.setStatus(200);
-            resp.setContentType("text/html");
-            resp.setBody("OK");
+            for (const LocationConfig& loc : state.config.getLocations())
+            {
+                std::cout << "comparing: '" << loc.getLocationPath() << "' == '" << req.path << "'\n";
+                if (loc.getLocationPath() == req.path)
+                {
+                    found = true;
+                    auto methods = loc.getAllowedMethods();
+                    auto it = std::find(methods.begin(), methods.end(), req.method);
+                    if (it != methods.end())
+                    {
+                        // find method
+                        Response resp;
+                        resp.setStatus(200);
+                        resp.setContentType("text/html");
+                        resp.setBody("OK");
+                        client.getWriteBuffer() += resp.build(req.keepAlive);
+                        client.setCloseAfterWrite(!req.keepAlive);
+                    }
+                    else
+                    {
+                        Response resp = Response::makeError(405);
+                        client.getWriteBuffer() += resp.build(false);
+                        client.setCloseAfterWrite(true);
+                    }
+                    break;
+                }
+                
+            }
+            if (!found)
+            {
+                // can not found location → 404
+                Response resp = Response::makeError(404);
+                client.getWriteBuffer() += resp.build(false);
+                client.setCloseAfterWrite(true);
+            }
+
             client.getWriteBuffer() += resp.build(req.keepAlive);
             client.setCloseAfterWrite(!req.keepAlive);
         }

@@ -11,14 +11,25 @@
 /* ************************************************************************** */
 
 #include "EventLoop.hpp"
+#include "../include/ConfigParser.hpp"
 
 
-int main() {
-    const int PORT = 8080;
+int main(int ac, char** av) {
+    // from config/default.conf 
+    ConfigParser parser;
+    parser.setFilepath(ac, av);
+    auto result = parser.parseConfig();
+    if (!result.has_value() || result->empty())
+    {
+        std::cerr << "Failed to parse config file\n";
+        return 1;
+    }
+    int PORT = result->at(0).getPort();
     ServerSocket server(PORT);
     server.bind_and_listen();
 
     ServerState state;
+    state.config = result->at(0);
 
     pollfd server_pfd;
     server_pfd.fd      = server.fd();

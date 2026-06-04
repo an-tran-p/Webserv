@@ -21,12 +21,15 @@
 #include <vector>
 #include <algorithm>
 #include <chrono>
+#include  "../include/ServerConfig.hpp"
+
 
 struct ServerState {
     std::vector<Connection> clients;
     std::vector<Request> requests;
     std::vector<pollfd> poll_fds;
     std::vector<std::chrono::steady_clock::time_point> connectTime;
+    ServerConfig config;
 };
 
 bool tryParseRequest(Connection& client, Request &req);
