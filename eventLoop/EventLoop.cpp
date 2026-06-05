@@ -46,6 +46,52 @@ static std::string buildFilePath(const LocationConfig& loc, const std::string& r
     return filePath;
 }
 
+static std::string executeCGI(const std::string& scriptPath, const std::string& interpreter)
+{
+    // 1. 创建管道：pipefd[0] 是读端，pipefd[1] 是写端
+    int pipefd[2];
+    if (pipe(pipefd) == -1)
+        return "";
+
+    // 2. 创建子进程
+    pid_t pid = fork();
+    if (pid == -1)
+        return "";
+
+    if (pid == 0)
+    {
+        // ===== kid =====
+        close(pipefd[0]);                        // 关闭读端，子进程不需要读
+        dup2(pipefd[1], STDOUT_FILENO);          // print() → 写进管道
+        close(pipefd[1]);                        // dup2 完了可以关掉
+
+        // run python3 ./www/cgi-bin/hello.py
+        char* args[] = {
+            (char*)interpreter.c_str(),          // "python3"
+            (char*)scriptPath.c_str(),           // "./www/cgi-bin/hello.py"
+            nullptr
+        };
+        execve(interpreter.c_str(), args, nullptr);
+        _exit(1);  
+    }
+    else
+    {
+        // ===== dad =====
+        close(pipefd[1]);   
+
+        std::string output;
+        char buf[4096];
+        ssize_t n;
+        while ((n = read(pipefd[0], buf, sizeof(buf))) > 0)
+            output.append(buf, n);
+        close(pipefd[0]);
+
+        waitpid(pid, nullptr, 0);  
+        return output;
+    }
+}
+
+
 static Response make404Response(const std::string& root)
 {
     std::string content = readFile(root + "/errors/404.html");
@@ -57,6 +103,60 @@ static Response make404Response(const std::string& root)
     else
         resp.setBody(content);
     return resp;
+}
+
+
+static int handlePostUpload(const Request& req, const LocationConfig& loc)
+{
+    /*
+    --------------------------26d42f3bcd2750b9\r\n
+    Content-Disposition: form-data; name="file"; filename="test.txt"\r\n
+    Content-Type: text/plain\r\n
+    \r\n
+    hello world\r\n
+    --------------------------26d42f3bcd2750b9--
+    */
+
+
+    // find boundary
+    std::string contentType = req.headers.at("content-type");
+    size_t pos = contentType.find("boundary=");
+    if (pos == std::string::npos)
+        return 400;
+    std::string boundary = "--" + contentType.substr(pos + 9);
+
+    // find filename="..."
+    size_t fnPos = req.body.find("filename=\"");
+    if (fnPos == std::string::npos)
+        return 400;
+    fnPos += 10;  // skip filename="（10 char）
+    size_t fnEnd = req.body.find("\"", fnPos);  // end "\"
+    std::string filename = req.body.substr(fnPos, fnEnd - fnPos);
+    // filename = "test.txt"
+
+    // find content
+    size_t headerEnd = req.body.find("\r\n\r\n");
+    if (headerEnd == std::string::npos)
+        return 400;
+    size_t contentStart = headerEnd + 4;  // skip \r\n\r\n
+
+    // find end boundary
+    std::string endBoundary = "\r\n" + boundary + "--";
+    size_t contentEnd = req.body.find(endBoundary, contentStart);
+    if (contentEnd == std::string::npos)
+        return 400;
+
+    // get file content
+    std::string fileContent = req.body.substr(contentStart, contentEnd - contentStart);
+
+    // save
+    std::string savePath = loc.getUploadDir() + filename;
+    std::ofstream outFile(savePath, std::ios::binary);
+    if (!outFile.is_open())
+        return 500;
+    outFile.write(fileContent.c_str(), fileContent.size());
+    outFile.close();
+    return 200;
 }
 
 
@@ -141,17 +241,32 @@ bool handleRead(size_t& i, ServerState& state) {
         } else {
 
             bool found = false;
+            const LocationConfig* bestMatch = nullptr;
             for (const LocationConfig& loc : state.config.getLocations())
             {
-                // std::cout << "comparing: '" << loc.getLocationPath() << "' == '" << req.path << "'\n";
-                if (loc.getLocationPath() == req.path)
+                if (req.path.rfind(loc.getLocationPath(), 0) == 0)  // match from begining
                 {
-                    found = true;
+                    if (bestMatch == nullptr ||
+                        loc.getLocationPath().size() > bestMatch->getLocationPath().size())
+                        bestMatch = &loc;  // choose longest match one
+                }
+            }
+            if (bestMatch != nullptr)
+            {
+                found = true;
+                const LocationConfig& loc = *bestMatch;
+                // check CGI
+                bool isCGI = (req.path.find(loc.getCgiExtension()) != std::string::npos)
+                             && !loc.getCgiPath().empty();
                     auto methods = loc.getAllowedMethods();
+
+                    // find method. 
                     auto it = std::find(methods.begin(), methods.end(), req.method);
+                    // if find method
                     if (it != methods.end())
                     {
-                         if (loc.getRedirect().first != 0)
+                        // if redirect
+                        if (loc.getRedirect().first != 0)
                         {
                             Response resp;
                             resp.setStatus(loc.getRedirect().first);       // 302
@@ -159,9 +274,55 @@ bool handleRead(size_t& i, ServerState& state) {
                             client.getWriteBuffer() += resp.build(false);
                             client.setCloseAfterWrite(true);
                         }
+                        // if CGI
+                        else if (isCGI)
+                        {
+                            // run CGI 
+                            std::string scriptPath = loc.getRoot() + req.path;
+                            std::string output = executeCGI(scriptPath, loc.getCgiPath());
+
+                            if (output.empty())
+                            {
+                                Response resp = make404Response(state.config.getRoot());
+                                client.getWriteBuffer() += resp.build(false);
+                                client.setCloseAfterWrite(true);
+                            }
+                            else
+                            {
+                                // find empty line
+                                size_t sep = output.find("\n\n");
+                                std::string body;
+                                if (sep != std::string::npos)
+                                    body = output.substr(sep + 2);  // content after 2 new line
+                                else
+                                    body = output;  // can not find new line, body
+
+                                Response resp;
+                                resp.setStatus(200);
+                                resp.setContentType("text/html");
+                                resp.setBody(body);
+                                client.getWriteBuffer() += resp.build(req.keepAlive);
+                                client.setCloseAfterWrite(!req.keepAlive);
+                            }
+                        }
+                        else if (req.method == "POST")
+                        {
+                            int status = handlePostUpload(req, loc);
+                            Response resp;
+                            if (status == 200)
+                            {
+                                resp.setStatus(200);
+                                resp.setContentType("text/html");
+                                resp.setBody("<h1>File uploaded successfully!</h1>");
+                            }
+                            else
+                                resp = Response::makeError(status);
+                            client.getWriteBuffer() += resp.build(req.keepAlive);
+                            client.setCloseAfterWrite(!req.keepAlive);
+                        }
+                        
                         else
                         {
-                            // find method
                             std::string filePath = buildFilePath(loc, req.path);
                             std::string content = readFile(filePath);
                             Response resp;
@@ -183,15 +344,12 @@ bool handleRead(size_t& i, ServerState& state) {
 
                         
                     }
-                    else
-                    {
-                        Response resp = Response::makeError(405);
-                        client.getWriteBuffer() += resp.build(false);
-                        client.setCloseAfterWrite(true);
-                    }
-                    break;
+                else
+                {
+                    Response resp = Response::makeError(405);
+                    client.getWriteBuffer() += resp.build(false);
+                    client.setCloseAfterWrite(true);
                 }
-                
             }
             if (!found)
             {
