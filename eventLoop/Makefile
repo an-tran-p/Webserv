@@ -13,13 +13,14 @@
 NAME = eventLoop
 
 SRCS = main.cpp Socket.cpp ServerSocket.cpp Connection.cpp parse.cpp parse_body.cpp \
-	parse_request.cpp Response.cpp EventLoop.cpp
+	parse_request.cpp Response.cpp EventLoop.cpp \
+	../config/ConfigParser.cpp ../config/ServerConfig.cpp ../config/LocationConfig.cpp
 
 OBJS = $(SRCS:%.cpp=%.o)
 
 CXX = c++
 
-FLAGS = -Wall -Wextra -Werror -std=c++20
+FLAGS = -Wall -Wextra -Werror -std=c++20 -I ../include
 
 RM = rm -rf
 
