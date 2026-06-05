@@ -70,6 +70,11 @@ void parseLocation(std::ifstream& file, std::vector<LocationConfig>& locations, 
         {
             location.setCgiExtension(stripSemicolon(nextToken(file)));
         }
+        else if (key == "autoindex")
+        {
+            std::string value = stripSemicolon(nextToken(file));
+            location.setAutoindex(value == "on");
+        }
         else if (key == "return") 
         {
             std::string code = nextToken(file);      // "302"
