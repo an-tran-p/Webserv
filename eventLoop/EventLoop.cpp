@@ -277,16 +277,18 @@ void removeClient(size_t &i, ServerState &state)
     state.poll_fds.erase(state.poll_fds.begin() + i);
     state.connectTime.erase(state.connectTime.begin() + ci);
     state.clientConfigs.erase(state.clientConfigs.begin() + ci);
+    state.clientListenFds.erase(state.clientListenFds.begin() + ci);
     --i;
 }
 
-void addClient(ServerSocket &server, ServerState &state, ServerConfig *config)
+void addClient(ServerSocket &server, ServerState &state, std::vector<ServerConfig*>& configs)
 {
     Socket clientSock = server.accept_client();
     state.clients.push_back(Connection(std::move(clientSock)));
     state.requests.push_back(Request{});
     state.connectTime.push_back(std::chrono::steady_clock::now());
-    state.clientConfigs.push_back(config); // 记录这个客户端属于哪个 server
+    state.clientConfigs.push_back(configs[0]);       // default: first config
+    state.clientListenFds.push_back(server.fd());    // record which listen fd this client came from
 
     pollfd client_pfd;
     client_pfd.fd = state.clients.back().fd();
@@ -339,9 +341,7 @@ bool handleRead(size_t &i, ServerState &state)
     {
         std::cout << "\n--- Request received from fd=" << client.fd() << " ---\n"
                   << "Method: " << req.method << "\n"
-                  << "Path:   " << req.path << "\n"
-                  << "Host:   " << req.headers["Host"] << "\n"
-                  << "Body:   " << req.body << "\n";
+                  << "Path:   " << req.path << "\n";
 
         if (req.isError())
         {
@@ -353,6 +353,29 @@ bool handleRead(size_t &i, ServerState &state)
         {
 
             ServerConfig *currentConfig = state.clientConfigs[ci];
+
+            // select server config based on Host header
+            // extract Host header and strip port for virtual hosting
+            std::string host = req.headers.count("host") ? req.headers.at("host") : "";
+            size_t colonPos = host.find(':');
+            if (colonPos != std::string::npos)
+                host = host.substr(0, colonPos);
+            int listenFd = state.clientListenFds[ci];
+            if (state.fdToConfigs.count(listenFd))
+            {
+                for (ServerConfig* cfg : state.fdToConfigs[listenFd])
+                {
+                    for (const std::string& name : cfg->getServerNames())
+                    {
+                        if (name == host)
+                        {
+                            currentConfig = cfg;
+                            break;
+                        }
+                    }
+                }
+            }
+
             bool found = false;
             const LocationConfig *bestMatch = nullptr;
             for (const LocationConfig &loc : currentConfig->getLocations())

@@ -203,7 +203,7 @@ void parseServer(std::ifstream &file, std::vector<ServerConfig> &servers) // par
 
     // Check that the name is not already taken.
     for (ServerConfig &other : servers)
-        if (other.getHost() == server.getHost() && other.getPort() == server.getPort())
+        if (other.getHost() == server.getHost() && other.getPort() == server.getPort() && other.getServerNames() == server.getServerNames())
             throw std::runtime_error("Duplicate server '" + server.getHost() + ":" + std::to_string(server.getPort()) + "'");
 
     // Add the server to the list.

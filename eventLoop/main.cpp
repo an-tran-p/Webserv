@@ -26,7 +26,7 @@ int main(int ac, char **av)
     signal(SIGINT, signalHandler);
     signal(SIGQUIT, signalHandler);
 
-    // 1. config
+    // 1. parse config file
     ConfigParser parser;
     parser.setFilepath(ac, av);
     auto result = parser.parseConfig();
@@ -37,31 +37,40 @@ int main(int ac, char **av)
     }
 
     ServerState state;
-    state.configs = *result;  // all the configs
+    state.configs = *result;
 
-    // 2. sockets for different servers
+    // 2. one socket per port, but multiple configs per port
     std::vector<ServerSocket*> servers;
-    state.numServers = state.configs.size();
+    std::map<int, ServerSocket*> portToSocket;
+
     for (size_t idx = 0; idx < state.configs.size(); idx++)
     {
         int port = state.configs[idx].getPort();
-        ServerSocket* srv = new ServerSocket(port);
-        srv->bind_and_listen();
-        servers.push_back(srv);
 
-        pollfd pfd;
-        pfd.fd      = srv->fd();
-        pfd.events  = POLLIN;
-        pfd.revents = 0;
-        state.poll_fds.push_back(pfd);
+        if (portToSocket.find(port) == portToSocket.end())
+        {
+            // new port, create a socket
+            ServerSocket* srv = new ServerSocket(port);
+            srv->bind_and_listen();
+            servers.push_back(srv);
+            portToSocket[port] = srv;
 
-        // which fd for which server config
-        state.fdToConfig[srv->fd()] = &state.configs[idx];
+            pollfd pfd;
+            pfd.fd      = srv->fd();
+            pfd.events  = POLLIN;
+            pfd.revents = 0;
+            state.poll_fds.push_back(pfd);
 
-        std::cout << "Server running on port " << port << "\n";
+            std::cout << "Server running on port " << port << "\n";
+        }
+
+        // map this fd to this config
+        state.fdToConfigs[portToSocket[port]->fd()].push_back(&state.configs[idx]);
     }
 
-    
+    state.numServers = servers.size();
+
+    // 3. main loop
     while (true)
     {
         if (g_signal)
@@ -79,13 +88,14 @@ int main(int ac, char **av)
             break;
         }
 
+        // check all listening fds
         for (size_t idx = 0; idx < servers.size(); idx++)
         {
             if (state.poll_fds[idx].revents & POLLIN)
-                addClient(*servers[idx], state, &state.configs[idx]);
+                addClient(*servers[idx], state, state.fdToConfigs[servers[idx]->fd()]);
         }
 
-        // client
+        // handle clients
         for (size_t i = servers.size(); i < state.poll_fds.size(); ++i)
         {
             if (state.poll_fds[i].revents & (POLLERR | POLLHUP | POLLNVAL))

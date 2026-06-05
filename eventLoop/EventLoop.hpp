@@ -30,14 +30,15 @@ struct ServerState {
     std::vector<pollfd> poll_fds;
     std::vector<std::chrono::steady_clock::time_point> connectTime;
     std::vector<ServerConfig> configs;
-    std::map<int, ServerConfig*> fdToConfig;
-    std::vector<ServerConfig*> clientConfigs;  
+    std::map<int, std::vector<ServerConfig*>> fdToConfigs;  // one fd : several config
+    std::vector<ServerConfig*> clientConfigs;
+    std::vector<int> clientListenFds;  // which listen fd each client came from
     size_t numServers = 0;
 };
 
 bool tryParseRequest(Connection& client, Request &req);
 void removeClient(size_t &i, ServerState& state);
-void addClient(ServerSocket &server, ServerState &state, ServerConfig* config);
+void addClient(ServerSocket &server, ServerState &state, std::vector<ServerConfig*>& configs);
 bool checkTimeout(size_t &i, ServerState &state);
 bool handleRead(size_t &i, ServerState &state);
 bool handleWrite(size_t &i, ServerState &state);
