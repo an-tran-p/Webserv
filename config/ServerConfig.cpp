@@ -14,9 +14,9 @@ int ServerConfig::getPort() const
     return _port;
 }
 
-const std::string& ServerConfig::getServerName() const
+const std::vector<std::string>& ServerConfig::getServerNames() const
 {
-    return _serverName;
+    return _serverNames;
 }
 
 size_t ServerConfig::getClientMaxBodySize() const
@@ -46,9 +46,9 @@ void ServerConfig::setPort(int port)
 {
     _port = port;
 }
-void ServerConfig::setServerName(const std::string& serverName)
+void ServerConfig::setServerNames(const std::vector<std::string>& serverNames)
 {
-    _serverName = serverName;
+    _serverNames = serverNames;
 }
 void ServerConfig::setClientMaxBodySize(size_t clientMaxBodySize)
 {

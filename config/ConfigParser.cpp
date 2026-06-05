@@ -138,7 +138,16 @@ void parseServer(std::ifstream &file, std::vector<ServerConfig> &servers) // par
         }
         else if (key == "server_name")
         {
-            server.setServerName(stripSemicolon(nextToken(file)));
+            std::vector<std::string> names;
+            std::string word;
+            while (file >> word)
+            {
+                bool last = (word.back() == ';');
+                names.push_back(stripSemicolon(word));
+                if (last)
+                    break;
+            }
+            server.setServerNames(names);
         }
         else if (key == "root")
         {

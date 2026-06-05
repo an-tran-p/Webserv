@@ -19,9 +19,9 @@ server {
 class ServerConfig
 {
     private:
-        std::string _host;
+        std::string _host;  
+        std::vector<std::string> _serverNames;
         int _port;
-        std::string _serverName;
         size_t _clientMaxBodySize;
         std::string _root;
         std::string _index;
@@ -33,7 +33,7 @@ class ServerConfig
         // Getter
         const std::string& getHost() const;
         int getPort() const;
-        const std::string& getServerName() const;
+        const std::vector<std::string>& getServerNames() const;
         size_t getClientMaxBodySize() const;
         const std::string& getRoot() const;
         const std::string& getIndex() const;
@@ -42,7 +42,7 @@ class ServerConfig
         // Setter
         void setHost(const std::string& host);
         void setPort(int port);
-        void setServerName(const std::string& serverName);
+        void setServerNames(const std::vector<std::string>& serverNames);
         void setClientMaxBodySize(size_t clientMaxBodySize);
         void setRoot(const std::string& root);
         void setIndex(const std::string& index);
