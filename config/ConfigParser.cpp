@@ -1,48 +1,47 @@
 #include "../include/ConfigParser.hpp"
-static void parseLocation(std::ifstream& file, std::vector<LocationConfig>& locations,
-                          const std::string& serverRoot, const std::string& serverIndex); 
-static void parseServer(std::ifstream& file, std::vector<ServerConfig>& servers);
+static void parseLocation(std::ifstream &file, std::vector<LocationConfig> &locations,
+                          const std::string &serverRoot, const std::string &serverIndex);
+static void parseServer(std::ifstream &file, std::vector<ServerConfig> &servers);
 
-
-
-static std::string stripSemicolon(const std::string& s)
+static std::string stripSemicolon(const std::string &s)
 {
     if (!s.empty() && s.back() == ';')
         return s.substr(0, s.size() - 1);
     return s;
 }
 
-std::string nextToken(std::ifstream& file)
+std::string nextToken(std::ifstream &file)
 {
     std::string word;
     file >> word; // 自动跳过所有空白（空格、Tab、换行）, 然后读取字符直到遇到下一个空白为止
     return word;
 }
 
-void expect(std::ifstream& file, std::string expected)
+void expect(std::ifstream &file, std::string expected)
 {
     if (nextToken(file) != expected)
         throw std::runtime_error("expected '" + expected + "'");
 }
 
-void parseLocation(std::ifstream& file, std::vector<LocationConfig>& locations, const std::string& serverRoot, const std::string& serverIndex)
+void parseLocation(std::ifstream &file, std::vector<LocationConfig> &locations, const std::string &serverRoot, const std::string &serverIndex)
 {
     // Parse the start of the location block.
     LocationConfig location;
-    location.setRoot(serverRoot);   
+    location.setRoot(serverRoot);
     location.setIndex(serverIndex);
-    
+
     location.setLocationPath(nextToken(file));
     expect(file, "{");
 
     // Parse the contents of the location block.
-    while (file) {
+    while (file)
+    {
         std::string key = nextToken(file);
-        if (key == "}") 
+        if (key == "}")
         {
             break;
-        } 
-        else if (key == "limit_except") 
+        }
+        else if (key == "limit_except")
         {
             std::vector<std::string> methods;
             std::string word;
@@ -54,19 +53,25 @@ void parseLocation(std::ifstream& file, std::vector<LocationConfig>& locations, 
             int depth = 0;
             while (file >> skip)
             {
-                if (skip == "{") depth++;
-                if (skip == "}") { depth--; if (depth < 0) break; }
+                if (skip == "{")
+                    depth++;
+                if (skip == "}")
+                {
+                    depth--;
+                    if (depth < 0)
+                        break;
+                }
             }
-        } 
-        else if (key == "upload_dir") 
+        }
+        else if (key == "upload_dir")
         {
             location.setUploadDir(stripSemicolon(nextToken(file)));
         }
-        else if (key == "cgi_path") 
+        else if (key == "cgi_path")
         {
             location.setCgiPath(stripSemicolon(nextToken(file)));
         }
-        else if (key == "cgi_extension") 
+        else if (key == "cgi_extension")
         {
             location.setCgiExtension(stripSemicolon(nextToken(file)));
         }
@@ -75,28 +80,28 @@ void parseLocation(std::ifstream& file, std::vector<LocationConfig>& locations, 
             std::string value = stripSemicolon(nextToken(file));
             location.setAutoindex(value == "on");
         }
-        else if (key == "return") 
+        else if (key == "return")
         {
-            std::string code = nextToken(file);      // "302"
-            std::string url = stripSemicolon(nextToken(file));  // "https://google.com"
+            std::string code = nextToken(file);                // "302"
+            std::string url = stripSemicolon(nextToken(file)); // "https://google.com"
             location.setRedirect({std::stoi(code), url});
         }
-        else 
+        else
         {
             throw std::runtime_error("Unknown key '" + key + "'");
         }
     }
 
     // Check that the location is not already taken.
-    for (LocationConfig& other: locations)                              // ✅
-        if (other.getLocationPath() == location.getLocationPath())      // ✅
+    for (LocationConfig &other : locations)                        // ✅
+        if (other.getLocationPath() == location.getLocationPath()) // ✅
             throw std::runtime_error("Duplicate location '" + location.getLocationPath() + "'");
 
     // Add the location to the list of locations.
     locations.push_back(location);
 }
 
-void parseServer(std::ifstream& file, std::vector<ServerConfig>& servers) // parse one block
+void parseServer(std::ifstream &file, std::vector<ServerConfig> &servers) // parse one block
 {
     std::vector<LocationConfig> locations;
     // Check for the start of a server block.
@@ -105,19 +110,22 @@ void parseServer(std::ifstream& file, std::vector<ServerConfig>& servers) // par
 
     // Parse the contents of the server block.
     ServerConfig server = {};
-    while (file) {
+    while (file)
+    {
         std::string key = nextToken(file);
-        if (key == "}") 
+        if (key == "}")
         {
             break;
-        } else if (key == "location") {
+        }
+        else if (key == "location")
+        {
             parseLocation(file, locations, server.getRoot(), server.getIndex());
-        } 
-        else if (key == "listen") 
+        }
+        else if (key == "listen")
         {
             std::string value;
             file >> value;
-            value = stripSemicolon(value); 
+            value = stripSemicolon(value);
             //  "127.0.0.1:8080"
             size_t colon = value.find(':');
             if (colon != std::string::npos) // if found ":"
@@ -127,33 +135,45 @@ void parseServer(std::ifstream& file, std::vector<ServerConfig>& servers) // par
             }
             else
                 server.setPort(std::stoi(value));
-        } 
-        else if (key == "server_name") 
+        }
+        else if (key == "server_name")
         {
             server.setServerName(stripSemicolon(nextToken(file)));
-        } 
-        else if (key == "root") 
+        }
+        else if (key == "root")
         {
             server.setRoot(stripSemicolon(nextToken(file)));
-        } 
-        else if (key == "index") 
+        }
+        else if (key == "index")
         {
             server.setIndex(stripSemicolon(nextToken(file)));
-        } 
-        else if (key == "client_max_body_size") 
+        }
+        else if (key == "client_max_body_size")
         {
             std::string value;
             value = stripSemicolon(nextToken(file));
             // 解析 1M / 1G / 1K
             size_t multiplier = 1;
             char unit = value.back();
-            if (unit == 'M') { value.pop_back(); multiplier = 1024 * 1024; }
-            else if (unit == 'G') { value.pop_back(); multiplier = 1024 * 1024 * 1024; }
-            else if (unit == 'K') { value.pop_back(); multiplier = 1024; }
+            if (unit == 'M')
+            {
+                value.pop_back();
+                multiplier = 1024 * 1024;
+            }
+            else if (unit == 'G')
+            {
+                value.pop_back();
+                multiplier = 1024 * 1024 * 1024;
+            }
+            else if (unit == 'K')
+            {
+                value.pop_back();
+                multiplier = 1024;
+            }
             server.setClientMaxBodySize(std::stoul(value) * multiplier);
-        } 
+        }
 
-        else 
+        else
         {
             throw std::runtime_error("Unknown key '" + key + "'");
         }
@@ -162,22 +182,16 @@ void parseServer(std::ifstream& file, std::vector<ServerConfig>& servers) // par
     // Check that the server received a name.
     if (server.getHost().empty())
         throw std::runtime_error("Missing server name");
-    
+
     // Check that the name is not already taken.
-    for (ServerConfig& other: servers)
-        if (other.getHost() == server.getHost())
+    for (ServerConfig &other : servers)
+        if (other.getHost() == server.getHost() && other.getPort() == server.getPort())
             throw std::runtime_error("Duplicate server '" + server.getHost() + "'");
 
     // Add the server to the list.
     server.setLocations(locations);
     servers.push_back(server);
 }
-
-
-
-
-
-
 
 ConfigParser::ConfigParser()
 {
@@ -203,7 +217,6 @@ int ConfigParser::setFilepath(int argc, char **argv)
     return success;
 }
 
-
 std::optional<std::vector<ServerConfig>> ConfigParser::parseConfig()
 {
     std::ifstream file(_filepath);
@@ -219,9 +232,6 @@ std::optional<std::vector<ServerConfig>> ConfigParser::parseConfig()
     while (!(file >> std::ws).eof())
     {
         parseServer(file, servers);
-        
-            
-        
     }
     return servers;
 }

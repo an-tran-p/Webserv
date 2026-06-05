@@ -42,6 +42,7 @@ std::string Response::_getReason(int code){
         {414, "URI Too Long"},
         {500, "Internal Server Error"},
         {501, "Not Implemented"},
+        {504, "Gateway Timeout"},
     };
     auto it = reasons.find(code);
     if (it != reasons.end())

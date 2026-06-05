@@ -12,6 +12,8 @@
 
 #include "EventLoop.hpp"
 #include <dirent.h>
+#include <fcntl.h>
+#include <cerrno>
 
 static std::string readFile(const std::string &filePath)
 {
@@ -19,7 +21,7 @@ static std::string readFile(const std::string &filePath)
     std::ifstream file(filePath, std::ios::binary);
     if (!file.is_open())
     {
-        std::cout << "readFile: cannot open file\n";
+        // std::cout << "readFile: cannot open file\n";
         return "";
     }
 
@@ -27,7 +29,7 @@ static std::string readFile(const std::string &filePath)
     std::streamsize size = file.tellg();
     if (size < 0)
     {
-        std::cout << "readFile: invalid size\n";
+        // std::cout << "readFile: invalid size\n";
         return "";
     }
     file.seekg(0, std::ios::beg);
@@ -49,7 +51,6 @@ static std::string buildFilePath(const LocationConfig &loc, const std::string &r
 
 static std::string executeCGI(const std::string &scriptPath, const std::string &interpreter)
 {
-    // 1. 创建管道：pipefd[0] 是读端，pipefd[1] 是写端
     int pipefd[2];
     if (pipe(pipefd) == -1)
         return "";
@@ -62,10 +63,9 @@ static std::string executeCGI(const std::string &scriptPath, const std::string &
     if (pid == 0)
     {
         // ===== kid =====
-        close(pipefd[0]);               // 关闭读端，子进程不需要读
-        dup2(pipefd[1], STDOUT_FILENO); // print() → 写进管道
-        close(pipefd[1]);               // dup2 完了可以关掉
-
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[1]);
         // run python3 ./www/cgi-bin/hello.py
         char *args[] = {
             (char *)interpreter.c_str(), // "python3"
@@ -79,13 +79,39 @@ static std::string executeCGI(const std::string &scriptPath, const std::string &
         // ===== dad =====
         close(pipefd[1]);
 
+        // set time
+        time_t start = time(nullptr);
         std::string output;
         char buf[4096];
         ssize_t n;
-        while ((n = read(pipefd[0], buf, sizeof(buf))) > 0)
-            output.append(buf, n);
-        close(pipefd[0]);
 
+        // set pipe nonblock
+        fcntl(pipefd[0], F_SETFL, O_NONBLOCK);
+
+        while (true)
+        {
+            n = read(pipefd[0], buf, sizeof(buf));
+            if (n > 0)
+                output.append(buf, n);
+            else if (n == 0)
+                break; // EOF，child end
+            else if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                // check time
+                if (difftime(time(nullptr), start) > 5)
+                {
+                    // kill child
+                    kill(pid, SIGKILL);
+                    waitpid(pid, nullptr, 0);
+                    close(pipefd[0]);
+                    return "TIMEOUT"; // return 0/  504
+                }
+                usleep(10000); 
+            }
+            else
+                break; 
+        }
+        close(pipefd[0]);
         waitpid(pid, nullptr, 0);
         return output;
     }
@@ -104,15 +130,15 @@ static Response make404Response(const std::string &root)
     return resp;
 }
 
-static std::string generateAutoIndex(const std::string& dirPath, const std::string& reqPath)
+static std::string generateAutoIndex(const std::string &dirPath, const std::string &reqPath)
 {
-    DIR* dir = opendir(dirPath.c_str());
+    DIR *dir = opendir(dirPath.c_str());
     if (!dir)
         return "";
 
     std::string html = "<html><body><h1>Index of " + reqPath + "</h1><ul>";
 
-    struct dirent* entry;
+    struct dirent *entry;
     while ((entry = readdir(dir)) != nullptr)
     {
         std::string name = entry->d_name;
@@ -185,7 +211,7 @@ static int handleDelete(const Request &req, const LocationConfig &loc)
 
     // 2. get file path
     std::string filePath = loc.getUploadDir() + filename;
-    std::cout << "DELETE filePath: " << filePath << "\n";
+    // std::cout << "DELETE filePath: " << filePath << "\n";
 
     // 3. detele
     if (unlink(filePath.c_str()) == 0)
@@ -208,19 +234,22 @@ bool tryParseRequest(Connection &client, Request &req)
 
 void removeClient(size_t &i, ServerState &state)
 {
-    state.clients.erase(state.clients.begin() + (i - 1));
-    state.requests.erase(state.requests.begin() + (i - 1));
+    size_t ci = i - state.numServers;  // client index
+    state.clients.erase(state.clients.begin() + ci);
+    state.requests.erase(state.requests.begin() + ci);
     state.poll_fds.erase(state.poll_fds.begin() + i);
-    state.connectTime.erase(state.connectTime.begin() + (i - 1));
+    state.connectTime.erase(state.connectTime.begin() + ci);
+    state.clientConfigs.erase(state.clientConfigs.begin() + ci);
     --i;
 }
 
-void addClient(ServerSocket &server, ServerState &state)
+void addClient(ServerSocket &server, ServerState &state, ServerConfig* config)
 {
     Socket clientSock = server.accept_client();
     state.clients.push_back(Connection(std::move(clientSock)));
     state.requests.push_back(Request{});
     state.connectTime.push_back(std::chrono::steady_clock::now());
+    state.clientConfigs.push_back(config);  // 记录这个客户端属于哪个 server
 
     pollfd client_pfd;
     client_pfd.fd = state.clients.back().fd();
@@ -233,17 +262,18 @@ void addClient(ServerSocket &server, ServerState &state)
 
 bool checkTimeout(size_t &i, ServerState &state)
 {
+    size_t ci = i - state.numServers;
     auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - state.connectTime[i - 1]).count();
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - state.connectTime[ci]).count();
 
-    if (elapsed > 10 && !state.requests[i - 1].isDone())
+    if (elapsed > 10 && !state.requests[ci].isDone())
     {
-        std::cout << "Client timeout! fd=" << state.clients[i - 1].fd() << "\n";
+        std::cout << "Client timeout! fd=" << state.clients[ci].fd() << "\n";
         Response resp = Response::makeError(408);
-        state.clients[i - 1].getWriteBuffer() += resp.build(false);
-        state.clients[i - 1].setCloseAfterWrite(true);
+        state.clients[ci].getWriteBuffer() += resp.build(false);
+        state.clients[ci].setCloseAfterWrite(true);
         state.poll_fds[i].events |= POLLOUT;
-        state.connectTime[i - 1] = now;
+        state.connectTime[ci] = now;
         return true;
     }
     return false;
@@ -251,9 +281,10 @@ bool checkTimeout(size_t &i, ServerState &state)
 
 bool handleRead(size_t &i, ServerState &state)
 {
+    size_t ci = i - state.numServers;
     pollfd &pfd = state.poll_fds[i];
-    Connection &client = state.clients[i - 1];
-    Request &req = state.requests[i - 1];
+    Connection &client = state.clients[ci];
+    Request &req = state.requests[ci];
 
     if (!(pfd.revents & POLLIN))
         return false;
@@ -265,7 +296,7 @@ bool handleRead(size_t &i, ServerState &state)
         return true;
     }
 
-    state.connectTime[i - 1] = std::chrono::steady_clock::now();
+    state.connectTime[ci] = std::chrono::steady_clock::now();
 
     if (tryParseRequest(client, req))
     {
@@ -284,9 +315,10 @@ bool handleRead(size_t &i, ServerState &state)
         else
         {
 
+            ServerConfig* currentConfig = state.clientConfigs[ci];
             bool found = false;
             const LocationConfig *bestMatch = nullptr;
-            for (const LocationConfig &loc : state.config.getLocations())
+            for (const LocationConfig &loc : currentConfig->getLocations())
             {
                 if (req.path.rfind(loc.getLocationPath(), 0) == 0) // match from begining
                 {
@@ -305,7 +337,7 @@ bool handleRead(size_t &i, ServerState &state)
                 auto methods = loc.getAllowedMethods();
 
                 // check body size
-                if (req.body.size() > state.config.getClientMaxBodySize())
+                if (req.body.size() > currentConfig->getClientMaxBodySize())
                 {
                     Response resp = Response::makeError(413);
                     client.getWriteBuffer() += resp.build(false);
@@ -334,9 +366,15 @@ bool handleRead(size_t &i, ServerState &state)
                         std::string scriptPath = loc.getRoot() + req.path;
                         std::string output = executeCGI(scriptPath, loc.getCgiPath());
 
+                        if (output == "TIMEOUT")
+                        {
+                            Response resp = Response::makeError(504);
+                            client.getWriteBuffer() += resp.build(false);
+                            client.setCloseAfterWrite(true);
+                        }
                         if (output.empty())
                         {
-                            Response resp = make404Response(state.config.getRoot());
+                            Response resp = make404Response(currentConfig->getRoot());
                             client.getWriteBuffer() += resp.build(false);
                             client.setCloseAfterWrite(true);
                         }
@@ -421,7 +459,7 @@ bool handleRead(size_t &i, ServerState &state)
             if (!found)
             {
                 // can not found location → 404
-                Response resp = make404Response(state.config.getRoot());
+                Response resp = make404Response(currentConfig->getRoot());
                 client.getWriteBuffer() += resp.build(false);
                 client.setCloseAfterWrite(true);
             }
@@ -431,21 +469,22 @@ bool handleRead(size_t &i, ServerState &state)
         }
         req = Request{};
         pfd.events |= POLLOUT;
-        state.connectTime[i - 1] = std::chrono::steady_clock::now();
+        state.connectTime[ci] = std::chrono::steady_clock::now();
     }
     return false;
 }
 
 bool handleWrite(size_t &i, ServerState &state)
 {
+    size_t ci = i - state.numServers;
     pollfd &pfd = state.poll_fds[i];
-    Connection &client = state.clients[i - 1];
+    Connection &client = state.clients[ci];
 
     if (!(pfd.revents & POLLOUT))
         return false;
 
     client.write_to_socket();
-    state.connectTime[i - 1] = std::chrono::steady_clock::now();
+    state.connectTime[ci] = std::chrono::steady_clock::now();
 
     if (client.getWriteBuffer().empty())
     {

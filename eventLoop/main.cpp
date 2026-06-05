@@ -12,10 +12,21 @@
 
 #include "EventLoop.hpp"
 #include "../include/ConfigParser.hpp"
+#include <csignal>
 
+volatile sig_atomic_t g_signal = 0;
 
-int main(int ac, char** av) {
-    // from config/default.conf 
+void signalHandler(int sig)
+{
+    g_signal = sig;
+}
+
+int main(int ac, char **av)
+{
+    signal(SIGINT, signalHandler);
+    signal(SIGQUIT, signalHandler);
+
+    // 1. config
     ConfigParser parser;
     parser.setFilepath(ac, av);
     auto result = parser.parseConfig();
@@ -24,30 +35,64 @@ int main(int ac, char** av) {
         std::cerr << "Failed to parse config file\n";
         return 1;
     }
-    int PORT = result->at(0).getPort();
-    ServerSocket server(PORT);
-    server.bind_and_listen();
 
     ServerState state;
-    state.config = result->at(0);
+    state.configs = *result;  // all the configs
 
-    pollfd server_pfd;
-    server_pfd.fd      = server.fd();
-    server_pfd.events  = POLLIN;
-    server_pfd.revents = 0;
-    state.poll_fds.push_back(server_pfd);
+    // 2. sockets for different servers
+    std::vector<ServerSocket*> servers;
+    state.numServers = state.configs.size();
+    for (size_t idx = 0; idx < state.configs.size(); idx++)
+    {
+        int port = state.configs[idx].getPort();
+        ServerSocket* srv = new ServerSocket(port);
+        srv->bind_and_listen();
+        servers.push_back(srv);
 
-    std::cout << "Server running on port " << PORT << "\n";
-    while (true) {
+        pollfd pfd;
+        pfd.fd      = srv->fd();
+        pfd.events  = POLLIN;
+        pfd.revents = 0;
+        state.poll_fds.push_back(pfd);
+
+        // which fd for which server config
+        state.fdToConfig[srv->fd()] = &state.configs[idx];
+
+        std::cout << "Server running on port " << port << "\n";
+    }
+
+    
+    while (true)
+    {
+        if (g_signal)
+        {
+            std::cout << "Shutting down server...\n";
+            break;
+        }
+
         int ret = poll(state.poll_fds.data(), state.poll_fds.size(), 1000);
-        if (ret < 0) {
+        if (ret < 0)
+        {
+            if (errno == EINTR)
+                continue;
             perror("poll");
             break;
         }
-        if (state.poll_fds[0].revents & POLLIN)
-            addClient(server, state);
 
-        for (size_t i = 1; i < state.poll_fds.size(); ++i) {
+        for (size_t idx = 0; idx < servers.size(); idx++)
+        {
+            if (state.poll_fds[idx].revents & POLLIN)
+                addClient(*servers[idx], state, &state.configs[idx]);
+        }
+
+        // client
+        for (size_t i = servers.size(); i < state.poll_fds.size(); ++i)
+        {
+            if (state.poll_fds[i].revents & (POLLERR | POLLHUP | POLLNVAL))
+            {
+                removeClient(i, state);
+                continue;
+            }
             if (checkTimeout(i, state))
                 continue;
             if (handleRead(i, state))
@@ -55,5 +100,9 @@ int main(int ac, char** av) {
             handleWrite(i, state);
         }
     }
+
+    for (ServerSocket* srv : servers)
+        delete srv;
+
     return 0;
 }
