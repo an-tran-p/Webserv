@@ -6,7 +6,7 @@
 /*   By: atran <atran@student.hive.fi>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/02/15 14:12:54 by atran             #+#    #+#             */
-/*   Updated: 2026/04/04 14:31:28 by atran            ###   ########.fr       */
+/*   Updated: 2026/06/05 21:46:07 by atran            ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -26,7 +26,7 @@ void ServerSocket::bind_and_listen(){
     if (setsockopt(_socket.fd(), SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
         throw std::runtime_error("setsockopt toreuseof port failed");
 
-    if (fcntl(_socket.fd(), SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
+    if (fcntl(_socket.fd(), F_SETFL, O_NONBLOCK) < 0)
         throw std::runtime_error("fcntl on server socket failed");
     
     if (bind(_socket.fd(), reinterpret_cast<sockaddr*>(&_addr), sizeof(_addr)) < 0)
@@ -40,8 +40,11 @@ void ServerSocket::bind_and_listen(){
 
 Socket ServerSocket::accept_client() {
     int client_fd = accept(_socket.fd(), nullptr, nullptr);
-    if (client_fd < 0)
+    if (client_fd < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+            return Socket(-1);
         throw std::runtime_error("accept failed");
+    }
 
     //set non-blocking so recv/send never block the event loop
     if (fcntl(client_fd, F_SETFL, O_NONBLOCK) < 0){

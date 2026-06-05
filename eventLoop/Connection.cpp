@@ -6,7 +6,7 @@
 /*   By: atran <atran@student.hive.fi>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/03/27 09:58:35 by atran             #+#    #+#             */
-/*   Updated: 2026/04/14 10:26:27 by atran            ###   ########.fr       */
+/*   Updated: 2026/06/05 21:41:43 by atran            ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -51,7 +51,7 @@ bool Connection::write_to_socket(){
     if (_writeBuffer.empty())
         return true;
 
-    int bytes = send(_socket.fd(), _writeBuffer.c_str(), _writeBuffer.size(), 0);
+    ssize_t bytes = send(_socket.fd(), _writeBuffer.c_str(), _writeBuffer.size(), 0);
     if (bytes <= 0){
         if (errno == EAGAIN || errno == EWOULDBLOCK)
             return true;
