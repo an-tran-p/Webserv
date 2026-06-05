@@ -220,6 +220,33 @@ static int handleDelete(const Request &req, const LocationConfig &loc)
         return 404; // Fail → NO file
 }
 
+static std::string getMimeType(const std::string& filePath)
+{
+    static const std::map<std::string, std::string> mimeMap = {
+        {".html", "text/html"},
+        {".css",  "text/css"},
+        {".js",   "application/javascript"},
+        {".json", "application/json"},
+        {".png",  "image/png"},
+        {".jpg",  "image/jpeg"},
+        {".jpeg", "image/jpeg"},
+        {".gif",  "image/gif"},
+        {".txt",  "text/plain"},
+        {".ico",  "image/x-icon"},
+    };
+
+    size_t dotPos = filePath.find_last_of('.');
+    if (dotPos == std::string::npos)
+        return "application/octet-stream";
+
+    std::string ext = filePath.substr(dotPos);
+    auto it = mimeMap.find(ext);
+    if (it != mimeMap.end())
+        return it->second;
+    return "application/octet-stream";
+}
+
+
 bool tryParseRequest(Connection &client, Request &req)
 {
     std::string &rbuf = client.getReadBuffer();
@@ -420,11 +447,12 @@ bool handleRead(size_t &i, ServerState &state)
                         client.getWriteBuffer() += resp.build(false);
                         client.setCloseAfterWrite(true);
                     }
-                    else
+                    else 
                     {
                         std::string filePath = buildFilePath(loc, req.path);
                         std::string content = readFile(filePath);
                         Response resp;
+                        // autoindex
                         if (content.empty() && loc.getAutoindex() && req.path.back() == '/')
                         {
                             std::string dirPath = loc.getRoot() + req.path;
@@ -439,10 +467,10 @@ bool handleRead(size_t &i, ServerState &state)
                                 client.setCloseAfterWrite(!req.keepAlive);
                             }
                         }
-                        else
+                        else // static
                         {
                             resp.setStatus(200);
-                            resp.setContentType("text/html");
+                            resp.setContentType(getMimeType(filePath));  
                             resp.setBody(content);
                             client.getWriteBuffer() += resp.build(req.keepAlive);
                             client.setCloseAfterWrite(!req.keepAlive);
