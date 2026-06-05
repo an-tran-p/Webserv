@@ -49,69 +49,113 @@ static std::string buildFilePath(const LocationConfig &loc, const std::string &r
     return filePath;
 }
 
-static std::string executeCGI(const std::string &scriptPath, const std::string &interpreter)
+static std::string executeCGI(const std::string &scriptPath, const std::string &interpreter, const Request &req)
 {
-    int pipefd[2];
-    if (pipe(pipefd) == -1)
+    // pipe_out: parent reads CGI stdout
+    // pipe_in:  parent writes POST body → CGI stdin
+    int pipe_out[2];
+    int pipe_in[2];
+    if (pipe(pipe_out) == -1 || pipe(pipe_in) == -1)
         return "";
 
-    // 2. 创建子进程
     pid_t pid = fork();
     if (pid == -1)
         return "";
 
     if (pid == 0)
     {
-        // ===== kid =====
-        close(pipefd[0]);
-        dup2(pipefd[1], STDOUT_FILENO);
-        close(pipefd[1]);
-        // run python3 ./www/cgi-bin/hello.py
+        // ===== child process =====
+        // stdin  ← pipe_in read end
+        dup2(pipe_in[0], STDIN_FILENO);
+        // stdout → pipe_out write end
+        dup2(pipe_out[1], STDOUT_FILENO);
+        close(pipe_in[0]);
+        close(pipe_in[1]);
+        close(pipe_out[0]);
+        close(pipe_out[1]);
+
+        // close all inherited fds (listening sockets, etc.)
+        for (int fd = 3; fd < 1024; fd++)
+            close(fd);
+
+        // build CGI environment variables
+        std::string contentLength = req.headers.count("content-length") ? req.headers.at("content-length") : "0";
+        std::string contentType   = req.headers.count("content-type")   ? req.headers.at("content-type")   : "";
+
+        std::vector<std::string> envStrings = {
+            "REQUEST_METHOD="   + req.method,
+            "QUERY_STRING="     + req.queryString,
+            "CONTENT_LENGTH="   + contentLength,
+            "CONTENT_TYPE="     + contentType,
+            "SCRIPT_FILENAME="  + scriptPath,
+            "PATH_INFO="        + req.path,
+            "SERVER_PROTOCOL=HTTP/1.1",
+            "REDIRECT_STATUS=200",
+            "GATEWAY_INTERFACE=CGI/1.1",
+        };
+
+        std::vector<char *> env;
+        for (std::string &s : envStrings)
+            env.push_back(const_cast<char *>(s.c_str()));
+        env.push_back(nullptr);
+
         char *args[] = {
-            (char *)interpreter.c_str(), // "python3"
-            (char *)scriptPath.c_str(),  // "./www/cgi-bin/hello.py"
+            (char *)interpreter.c_str(),
+            (char *)scriptPath.c_str(),
             nullptr};
-        execve(interpreter.c_str(), args, nullptr);
+        execve(interpreter.c_str(), args, env.data());
         _exit(1);
     }
     else
     {
-        // ===== dad =====
-        close(pipefd[1]);
+        // ===== parent process =====
+        close(pipe_in[0]);
+        close(pipe_out[1]);
 
-        // set time
+        // write POST body to CGI stdin
+        if (req.method == "POST" && !req.body.empty())
+        {
+            size_t total = req.body.size();
+            size_t sent = 0;
+            while (sent < total)
+            {
+                ssize_t w = write(pipe_in[1], req.body.c_str() + sent, total - sent);
+                if (w > 0)
+                    sent += static_cast<size_t>(w);
+                else
+                    break;
+            }
+        }
+        close(pipe_in[1]); // signal EOF to CGI stdin
+
+        // read CGI stdout with timeout
+        fcntl(pipe_out[0], F_SETFL, O_NONBLOCK);
         time_t start = time(nullptr);
         std::string output;
         char buf[4096];
-        ssize_t n;
-
-        // set pipe nonblock
-        fcntl(pipefd[0], F_SETFL, O_NONBLOCK);
 
         while (true)
         {
-            n = read(pipefd[0], buf, sizeof(buf));
+            ssize_t n = read(pipe_out[0], buf, sizeof(buf));
             if (n > 0)
                 output.append(buf, n);
             else if (n == 0)
-                break; // EOF，child end
+                break; // EOF: CGI finished
             else if (errno == EAGAIN || errno == EWOULDBLOCK)
             {
-                // check time
                 if (difftime(time(nullptr), start) > 5)
                 {
-                    // kill child
                     kill(pid, SIGKILL);
                     waitpid(pid, nullptr, 0);
-                    close(pipefd[0]);
-                    return "TIMEOUT"; // return 0/  504
+                    close(pipe_out[0]);
+                    return "TIMEOUT";
                 }
                 usleep(10000);
             }
             else
                 break;
         }
-        close(pipefd[0]);
+        close(pipe_out[0]);
         waitpid(pid, nullptr, 0);
         return output;
     }
@@ -424,7 +468,7 @@ bool handleRead(size_t &i, ServerState &state)
                     {
                         // run CGI
                         std::string scriptPath = loc.getRoot() + req.path;
-                        std::string output = executeCGI(scriptPath, loc.getCgiPath());
+                        std::string output = executeCGI(scriptPath, loc.getCgiPath(), req);
 
                         if (output == "TIMEOUT")
                         {
@@ -432,24 +476,43 @@ bool handleRead(size_t &i, ServerState &state)
                             client.getWriteBuffer() += resp.build(false);
                             client.setCloseAfterWrite(true);
                         }
-                        if (output.empty())
+                        else if (output.empty())
                         {
-                            Response resp = makeErrorResponse(404, currentConfig);
+                            Response resp = makeErrorResponse(500, currentConfig);
                             client.getWriteBuffer() += resp.build(false);
                             client.setCloseAfterWrite(true);
                         }
                         else
                         {
-                            // find empty line
-                            size_t sep = output.find("\n\n");
-                            std::string body;
+                            // parse CGI output: headers\r\n\r\nbody
+                            // CGI may use \r\n\r\n or \n\n as separator
+                            size_t sep = output.find("\r\n\r\n");
+                            size_t sepLen = 4;
+                            if (sep == std::string::npos)
+                            {
+                                sep = output.find("\n\n");
+                                sepLen = 2;
+                            }
+
+                            std::string body = (sep != std::string::npos) ? output.substr(sep + sepLen) : output;
+                            int statusCode = 200;
+
+                            // check if CGI returned a Status header (e.g. "Status: 404 Not Found")
                             if (sep != std::string::npos)
-                                body = output.substr(sep + 2); // content after 2 new line
-                            else
-                                body = output; // can not find new line, body
+                            {
+                                std::string cgiHeaders = output.substr(0, sep);
+                                size_t statusPos = cgiHeaders.find("Status:");
+                                if (statusPos != std::string::npos)
+                                {
+                                    size_t numStart = statusPos + 7;
+                                    while (numStart < cgiHeaders.size() && cgiHeaders[numStart] == ' ')
+                                        numStart++;
+                                    statusCode = std::stoi(cgiHeaders.substr(numStart));
+                                }
+                            }
 
                             Response resp;
-                            resp.setStatus(200);
+                            resp.setStatus(statusCode);
                             resp.setContentType("text/html");
                             resp.setBody(body);
                             client.getWriteBuffer() += resp.build(req.keepAlive);
@@ -554,7 +617,11 @@ bool handleWrite(size_t &i, ServerState &state)
     if (!(pfd.revents & POLLOUT))
         return false;
 
-    client.write_to_socket();
+    if (!client.write_to_socket())
+    {
+        removeClient(i, state);
+        return true;
+    }
     state.connectTime[ci] = std::chrono::steady_clock::now();
 
     if (client.getWriteBuffer().empty())
