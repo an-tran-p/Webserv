@@ -161,7 +161,7 @@ void parseServer(std::ifstream &file, std::vector<ServerConfig> &servers) // par
         {
             std::string value;
             value = stripSemicolon(nextToken(file));
-            // 解析 1M / 1G / 1K
+            //  1M / 1G / 1K
             size_t multiplier = 1;
             char unit = value.back();
             if (unit == 'M')
@@ -181,7 +181,16 @@ void parseServer(std::ifstream &file, std::vector<ServerConfig> &servers) // par
             }
             server.setClientMaxBodySize(std::stoul(value) * multiplier);
         }
-
+        else if (key == "error_page")
+        {
+            std::string codeStr, path;
+            file >> codeStr >> path;
+            path = stripSemicolon(path);
+            int code = std::stoi(codeStr);
+            auto pages = server.getErrorPages();
+            pages[code] = path;
+            server.setErrorPages(pages);
+        }
         else
         {
             throw std::runtime_error("Unknown key '" + key + "'");
@@ -195,7 +204,7 @@ void parseServer(std::ifstream &file, std::vector<ServerConfig> &servers) // par
     // Check that the name is not already taken.
     for (ServerConfig &other : servers)
         if (other.getHost() == server.getHost() && other.getPort() == server.getPort())
-            throw std::runtime_error("Duplicate server '" + server.getHost() + "'");
+            throw std::runtime_error("Duplicate server '" + server.getHost() + ":" + std::to_string(server.getPort()) + "'");
 
     // Add the server to the list.
     server.setLocations(locations);

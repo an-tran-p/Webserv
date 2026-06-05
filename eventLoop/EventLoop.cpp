@@ -106,10 +106,10 @@ static std::string executeCGI(const std::string &scriptPath, const std::string &
                     close(pipefd[0]);
                     return "TIMEOUT"; // return 0/  504
                 }
-                usleep(10000); 
+                usleep(10000);
             }
             else
-                break; 
+                break;
         }
         close(pipefd[0]);
         waitpid(pid, nullptr, 0);
@@ -117,14 +117,25 @@ static std::string executeCGI(const std::string &scriptPath, const std::string &
     }
 }
 
-static Response make404Response(const std::string &root)
+static Response makeErrorResponse(int code, const ServerConfig *config)
 {
-    std::string content = readFile(root + "/errors/404.html");
+    auto pages = config->getErrorPages();
+    std::string content;
+
+    // find from config first: error_page 404 /errors/404.html;
+    if (pages.count(code))
+        content = readFile(config->getRoot() + pages.at(code));
+
+    // find default route
+    if (content.empty())
+        // content = readFile("./www/errors/404.html");
+        content = readFile(config->getRoot() + "/errors/" + std::to_string(code) + ".html");
+
     Response resp;
-    resp.setStatus(404);
+    resp.setStatus(code);
     resp.setContentType("text/html");
     if (content.empty())
-        resp.setBody("404 Not Found");
+        resp.setBody(std::to_string(code) + " Error");
     else
         resp.setBody(content);
     return resp;
@@ -220,19 +231,19 @@ static int handleDelete(const Request &req, const LocationConfig &loc)
         return 404; // Fail → NO file
 }
 
-static std::string getMimeType(const std::string& filePath)
+static std::string getMimeType(const std::string &filePath)
 {
     static const std::map<std::string, std::string> mimeMap = {
         {".html", "text/html"},
-        {".css",  "text/css"},
-        {".js",   "application/javascript"},
+        {".css", "text/css"},
+        {".js", "application/javascript"},
         {".json", "application/json"},
-        {".png",  "image/png"},
-        {".jpg",  "image/jpeg"},
+        {".png", "image/png"},
+        {".jpg", "image/jpeg"},
         {".jpeg", "image/jpeg"},
-        {".gif",  "image/gif"},
-        {".txt",  "text/plain"},
-        {".ico",  "image/x-icon"},
+        {".gif", "image/gif"},
+        {".txt", "text/plain"},
+        {".ico", "image/x-icon"},
     };
 
     size_t dotPos = filePath.find_last_of('.');
@@ -245,7 +256,6 @@ static std::string getMimeType(const std::string& filePath)
         return it->second;
     return "application/octet-stream";
 }
-
 
 bool tryParseRequest(Connection &client, Request &req)
 {
@@ -261,7 +271,7 @@ bool tryParseRequest(Connection &client, Request &req)
 
 void removeClient(size_t &i, ServerState &state)
 {
-    size_t ci = i - state.numServers;  // client index
+    size_t ci = i - state.numServers; // client index
     state.clients.erase(state.clients.begin() + ci);
     state.requests.erase(state.requests.begin() + ci);
     state.poll_fds.erase(state.poll_fds.begin() + i);
@@ -270,13 +280,13 @@ void removeClient(size_t &i, ServerState &state)
     --i;
 }
 
-void addClient(ServerSocket &server, ServerState &state, ServerConfig* config)
+void addClient(ServerSocket &server, ServerState &state, ServerConfig *config)
 {
     Socket clientSock = server.accept_client();
     state.clients.push_back(Connection(std::move(clientSock)));
     state.requests.push_back(Request{});
     state.connectTime.push_back(std::chrono::steady_clock::now());
-    state.clientConfigs.push_back(config);  // 记录这个客户端属于哪个 server
+    state.clientConfigs.push_back(config); // 记录这个客户端属于哪个 server
 
     pollfd client_pfd;
     client_pfd.fd = state.clients.back().fd();
@@ -342,7 +352,7 @@ bool handleRead(size_t &i, ServerState &state)
         else
         {
 
-            ServerConfig* currentConfig = state.clientConfigs[ci];
+            ServerConfig *currentConfig = state.clientConfigs[ci];
             bool found = false;
             const LocationConfig *bestMatch = nullptr;
             for (const LocationConfig &loc : currentConfig->getLocations())
@@ -401,7 +411,7 @@ bool handleRead(size_t &i, ServerState &state)
                         }
                         if (output.empty())
                         {
-                            Response resp = make404Response(currentConfig->getRoot());
+                            Response resp = makeErrorResponse(404, currentConfig);
                             client.getWriteBuffer() += resp.build(false);
                             client.setCloseAfterWrite(true);
                         }
@@ -447,11 +457,12 @@ bool handleRead(size_t &i, ServerState &state)
                         client.getWriteBuffer() += resp.build(false);
                         client.setCloseAfterWrite(true);
                     }
-                    else 
+                    else
                     {
                         std::string filePath = buildFilePath(loc, req.path);
                         std::string content = readFile(filePath);
                         Response resp;
+
                         // autoindex
                         if (content.empty() && loc.getAutoindex() && req.path.back() == '/')
                         {
@@ -469,11 +480,20 @@ bool handleRead(size_t &i, ServerState &state)
                         }
                         else // static
                         {
-                            resp.setStatus(200);
-                            resp.setContentType(getMimeType(filePath));  
-                            resp.setBody(content);
-                            client.getWriteBuffer() += resp.build(req.keepAlive);
-                            client.setCloseAfterWrite(!req.keepAlive);
+                            if (content.empty())
+                            {
+                                Response errResp = makeErrorResponse(404, currentConfig);
+                                client.getWriteBuffer() += errResp.build(false);
+                                client.setCloseAfterWrite(true);
+                            }
+                            else
+                            {
+                                resp.setStatus(200);
+                                resp.setContentType(getMimeType(filePath));
+                                resp.setBody(content);
+                                client.getWriteBuffer() += resp.build(req.keepAlive);
+                                client.setCloseAfterWrite(!req.keepAlive);
+                            }
                         }
                     }
                 }
@@ -487,7 +507,7 @@ bool handleRead(size_t &i, ServerState &state)
             if (!found)
             {
                 // can not found location → 404
-                Response resp = make404Response(currentConfig->getRoot());
+                Response resp = makeErrorResponse(404, currentConfig);
                 client.getWriteBuffer() += resp.build(false);
                 client.setCloseAfterWrite(true);
             }

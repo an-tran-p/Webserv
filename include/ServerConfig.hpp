@@ -26,6 +26,7 @@ class ServerConfig
         std::string _root;
         std::string _index;
         std::vector<LocationConfig> _locations;
+        std::map<int, std::string> _errorPages;
 
     public:
         ServerConfig();
@@ -38,6 +39,7 @@ class ServerConfig
         const std::string& getRoot() const;
         const std::string& getIndex() const;
         const std::vector<LocationConfig>& getLocations() const;
+        const std::map<int, std::string>& getErrorPages() const;
 
         // Setter
         void setHost(const std::string& host);
@@ -47,5 +49,6 @@ class ServerConfig
         void setRoot(const std::string& root);
         void setIndex(const std::string& index);
         void setLocations(const std::vector<LocationConfig>& locations);
+        void setErrorPages(const std::map<int, std::string>& errorPages);
 
 };

@@ -36,6 +36,10 @@ const std::vector<LocationConfig>& ServerConfig::getLocations() const
 {
     return _locations;
 }
+const std::map<int, std::string>& ServerConfig::getErrorPages() const
+{
+    return _errorPages;
+}
 
 // Setter
 void ServerConfig::setHost(const std::string& host)
@@ -65,4 +69,9 @@ void ServerConfig::setIndex(const std::string& index)
 void ServerConfig::setLocations(const std::vector<LocationConfig>& locations)
 {
     _locations = locations;
+}
+
+void ServerConfig::setErrorPages(const std::map<int, std::string>& errorPages)
+{
+    _errorPages = errorPages;
 }
