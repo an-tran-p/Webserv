@@ -6,7 +6,7 @@
 /*   By: atran <atran@student.hive.fi>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/05/23 14:41:15 by atran             #+#    #+#             */
-/*   Updated: 2026/05/23 19:05:46 by atran            ###   ########.fr       */
+/*   Updated: 2026/06/06 13:48:03 by atran            ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -328,6 +328,8 @@ void removeClient(size_t &i, ServerState &state)
 void addClient(ServerSocket &server, ServerState &state, std::vector<ServerConfig*>& configs)
 {
     Socket clientSock = server.accept_client();
+    if (clientSock.fd() == -1)
+        return;
     state.clients.push_back(Connection(std::move(clientSock)));
     state.requests.push_back(Request{});
     state.connectTime.push_back(std::chrono::steady_clock::now());
